@@ -63,8 +63,10 @@
   (then [this fun]
     (let [old-state @(.-_state this)
           cache (:cache old-state)
-          res (js/Promise.resolve (fun @cache))]
-      (.then res #(->SmartMap (assoc old-state :cache % :req-cache {}))))))
+          res (fun @cache)]
+      (if (instance? js/Promise res)
+        (.then res #(->SmartMap (assoc old-state :cache % :req-cache {})))
+        (->SmartMap (assoc old-state :cache res :req-cache {}))))))
 
 (extend-protocol IEquiv
   SmartMap
@@ -106,8 +108,6 @@
             new-cache children)))
 
 (defn- dissoc-req-cache [req-cache idx-info key]
-  (def idx-info idx-info)
-  (def k key)
   (let [resolvers (get-in idx-info [::pc/index-attributes key ::pc/attr-input-in])
         children (mapcat #(get-in idx-info [::pc/index-resolvers % ::pc/output])
                          resolvers)

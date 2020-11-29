@@ -20,26 +20,17 @@
   (swap! calls conj :full-name)
   {:person/full-name (str gn " " sn)})
 
-#_
 (deftest root-resolver
   (async-test "resolving roots"
     (let [map (smart/smart-map [root-person])]
       (check map => {})
       (check (:person/gn map) => "Name"))))
+
 #_
 (do
   (def smart (smart/smart-map [root-person full-name]))
-  (p/let [full (:person/full-name smart)
-          _ (prn :FULL-NAME full)
-          o smart
-          _ (prn :OLD o)
-          new (assoc smart :user/gn "FOO")
-          _ (:person/full-name new)
-          new2 (assoc smart :person/gn "BAR")
-          _ (prn :NEW2 new2)
-          full (:person/full-name new2)]
-    (prn :FULL-2 full)
-    new2))
+  (p/let [{:keys [person/full-name]} smart]
+    full-name))
 
 (deftest sub-resolvers
   (let [smart (smart/smart-map [root-person full-name])]
