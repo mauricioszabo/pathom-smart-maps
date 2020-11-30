@@ -26,7 +26,6 @@
 
 (def SmartMap (js* "class SmartMap extends Promise {}"))
 
-
 (defn- norm-cache [cache]
   (atom
    (cond
@@ -87,7 +86,7 @@
       (contains? not-found-cache k) (js/Promise.resolve default)
       :else (.then (make-query! state cache k)
                    (fn [res]
-                     (if (= ::p/not-found (get res k ::p/not-found))
+                     (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
                        (swap! state update :not-found-cache conj k)
                        (swap! (:cache @state) merge res))
                      (sm-get sm k default))))))
@@ -132,20 +131,13 @@
 
 (defn- sm-assoc [^js this k v]
   (let [new-state (sm-dissoc this k)]
-        ; state @(.-_state this)
-        ; old-cache @(:cache state)
-        ; old-req-cache @(:req-cache state)
-        ; idx-info (:idx-info state)
-        ; new-cache (-> old-cache
-        ;               (dissoc-children idx-info k))
-        ;
-        ;
-        ; new-req-cache (dissoc-req-cache old-req-cache idx-info k)]
     (->SmartMap (update new-state :cache assoc k v))))
 
 (defn- sm-contains? [^js this, k]
   (let [state @(.-_state this)]
-    (-> state :idx-info ::pc/index-oir (contains? k))))
+    (if (contains? (:not-found-cache state) k)
+      false
+      (-> state :idx-info ::pc/index-oir (contains? k)))))
 
 (extend-protocol IAssociative
   SmartMap

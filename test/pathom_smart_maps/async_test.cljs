@@ -20,12 +20,21 @@
   (swap! calls conj :full-name)
   {:person/full-name (str gn " " sn)})
 
+(pc/defresolver an-error [_ _]
+  {::pc/input #{}
+   ::pc/output [:error/field]}
+
+  (swap! calls conj :an-error)
+  (throw (ex-info "That's an error. That's all" {})))
+
 (deftest root-resolver
   (async-test "resolving roots"
     (let [map (smart/smart-map [root-person])]
       (check map => {})
       (check (:person/gn map) => "Name"))))
 
+#_
+(select-keys smart [:person/gn])
 #_
 (do
   (def smart (smart/smart-map [root-person full-name]))
@@ -60,6 +69,22 @@
                => "Name Surname")
         (check @calls => [:root-person :full-name :full-name :full-name
                           :root-person :full-name])))))
+
+(deftest containing-errors []
+  (let [smart (smart/smart-map [root-person an-error])]
+    (reset! calls [])
+    (testing "will check if a key is not part of resolvers"
+      (check (-contains-key? smart :inexistent/field) => false)
+      (check @calls => []))
+
+    (testing "will capture errors"
+      (check (:error/field smart) => nil)
+      (check @calls => [:an-error]))
+
+    (testing "will cache errors"
+      (check (:error/field smart) => nil)
+      (check @calls => [:an-error])
+      (check (-contains-key? smart :error/field) => false))))
 
 (defn- ^:dev/after-load run []
   (run-tests))
