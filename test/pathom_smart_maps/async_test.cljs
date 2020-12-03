@@ -33,13 +33,21 @@
       (check map => {})
       (check (:person/gn map) => "Name"))))
 
-#_
-(select-keys smart [:person/gn])
+(deftest destructuring-test
+  (let [smart (smart/smart-map [root-person full-name])]
+    (async-test "destructuring fields in promises"
+      (smart/let [{:person/keys [gn]} smart]
+        (check gn => "Name")))))
+
 #_
 (do
   (def smart (smart/smart-map [root-person full-name]))
+  #_
+  (p/let [full-name (:person/full-name smart)]
+    (prn :FULL full-name))
   (p/let [{:keys [person/full-name]} smart]
-    full-name))
+    (prn :F full-name)
+    (prn :F smart)))
 
 (deftest sub-resolvers
   (let [smart (smart/smart-map [root-person full-name])]
