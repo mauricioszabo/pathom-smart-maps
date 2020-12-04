@@ -20,17 +20,34 @@
   (swap! calls conj :full-name)
   {:person/full-name (str gn " " sn)})
 
+(pc/defresolver an-error [_ _]
+  {::pc/input #{}
+   ::pc/output [:error/field]}
+
+  (swap! calls conj :an-error)
+  (throw (ex-info "That's an error. That's all" {})))
+
 (deftest root-resolver
   (async-test "resolving roots"
     (let [map (smart/smart-map [root-person])]
       (check map => {})
       (check (:person/gn map) => "Name"))))
 
+(deftest destructuring-test
+  (let [smart (smart/smart-map [root-person full-name])]
+    (async-test "destructuring fields in promises"
+      (smart/let [{:person/keys [gn]} smart]
+        (check gn => "Name")))))
+
 #_
 (do
   (def smart (smart/smart-map [root-person full-name]))
+  #_
+  (p/let [full-name (:person/full-name smart)]
+    (prn :FULL full-name))
   (p/let [{:keys [person/full-name]} smart]
-    full-name))
+    (prn :F full-name)
+    (prn :F smart)))
 
 (deftest sub-resolvers
   (let [smart (smart/smart-map [root-person full-name])]
@@ -60,6 +77,22 @@
                => "Name Surname")
         (check @calls => [:root-person :full-name :full-name :full-name
                           :root-person :full-name])))))
+
+(deftest containing-errors []
+  (let [smart (smart/smart-map [root-person an-error])]
+    (reset! calls [])
+    (testing "will check if a key is not part of resolvers"
+      (check (-contains-key? smart :inexistent/field) => false)
+      (check @calls => []))
+
+    (testing "will capture errors"
+      (check (:error/field smart) => nil)
+      (check @calls => [:an-error]))
+
+    (testing "will cache errors"
+      (check (:error/field smart) => nil)
+      (check @calls => [:an-error])
+      (check (-contains-key? smart :error/field) => false))))
 
 (defn- ^:dev/after-load run []
   (run-tests))

@@ -1,5 +1,8 @@
 (ns pathom-smart-maps.async
-  (:require [cljs.core.async :as async]
+  (:refer-clojure :exclude [let])
+  (:require-macros [pathom-smart-maps.async])
+  (:require [cljs.core :as c]
+            [cljs.core.async :as async]
             [com.wsscode.pathom.connect :as pc]
             [com.wsscode.pathom.core :as p]))
 
@@ -26,7 +29,6 @@
 
 (def SmartMap (js* "class SmartMap extends Promise {}"))
 
-
 (defn- norm-cache [cache]
   (atom
    (cond
@@ -36,16 +38,16 @@
      :else cache)))
 
 (defn- ->SmartMap [{:keys [cache req-cache not-found-cache env] :as params}]
-  (let [req-cache (norm-cache req-cache)
-        cache (norm-cache cache)
-        state (assoc params
-                     :env (assoc env
-                                 ::p/entity cache
-                                 ::p/request-cache req-cache)
+  (c/let [req-cache (norm-cache req-cache)
+          cache (norm-cache cache)
+          state (assoc params
+                       :env (assoc env
+                                   ::p/entity cache
+                                   ::p/request-cache req-cache)
 
-                     :cache cache
-                     :req-cache req-cache
-                     :not-found-cache (or not-found-cache #{}))]
+                       :cache cache
+                       :req-cache req-cache
+                       :not-found-cache (or not-found-cache #{}))]
     (if (map? @cache)
       (doto (. SmartMap resolve state)
             (aset "_state" (atom state)))
@@ -56,38 +58,38 @@
     (= (.-_state this) (.-_state other))
     (= (.-_state this) other)))
 
+(defn- sm-then [^js this fun]
+  (c/let [old-state @(.-_state this)
+          cache (:cache old-state)
+          res (fun @cache)]
+    (if (instance? js/Promise res)
+      (.then res #(->SmartMap (assoc old-state :cache % :req-cache {})))
+      (->SmartMap (assoc old-state :cache res :req-cache {})))))
+
 (extend-protocol Object
   SmartMap
   (equiv [this other] (compare-to this other))
-
-  (then [this fun]
-    (let [old-state @(.-_state this)
-          cache (:cache old-state)
-          res (fun @cache)]
-      (if (instance? js/Promise res)
-        (.then res #(->SmartMap (assoc old-state :cache % :req-cache {})))
-        (->SmartMap (assoc old-state :cache res :req-cache {}))))))
+  (then [this fun] (sm-then this fun)))
 
 (extend-protocol IEquiv
   SmartMap
   (-equiv [this other] (compare-to this other)))
 
 (defn- make-query! [state cache k]
-  ; (prn :MAKING-QUERY-FOR k)
   (.then (eql (:parser @state) (:env @state) [k])
     #(do %)))
 
 (defn- sm-get [^js sm k default]
-  (let [state (.-_state sm)
-        {:keys [not-found-cache cache eql]} @state
-        cached (find @cache k)]
+  (c/let [state (.-_state sm)
+          {:keys [not-found-cache cache eql]} @state
+          cached (find @cache k)]
     (cond
       ;; FIXME: check if this should be a Promise
       cached (js/Promise.resolve (second cached))
       (contains? not-found-cache k) (js/Promise.resolve default)
       :else (.then (make-query! state cache k)
                    (fn [res]
-                     (if (= ::p/not-found (get res k ::p/not-found))
+                     (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
                        (swap! state update :not-found-cache conj k)
                        (swap! (:cache @state) merge res))
                      (sm-get sm k default))))))
@@ -99,53 +101,46 @@
    ([this k not-found] (sm-get this k not-found))))
 
 (defn- dissoc-children [cache idx-info key]
-  (let [resolvers (get-in idx-info [::pc/index-attributes key ::pc/attr-input-in])
-        children (mapcat #(get-in idx-info [::pc/index-resolvers % ::pc/output])
-                         resolvers)
-        new-cache (dissoc cache key)]
+  (c/let [resolvers (get-in idx-info [::pc/index-attributes key ::pc/attr-input-in])
+          children (mapcat #(get-in idx-info [::pc/index-resolvers % ::pc/output])
+                           resolvers)
+          new-cache (dissoc cache key)]
 
     (reduce (fn [acc key] (dissoc-children acc idx-info key))
             new-cache children)))
 
 (defn- dissoc-req-cache [req-cache idx-info key]
-  (let [resolvers (get-in idx-info [::pc/index-attributes key ::pc/attr-input-in])
-        children (mapcat #(get-in idx-info [::pc/index-resolvers % ::pc/output])
-                         resolvers)
+  (c/let [resolvers (get-in idx-info [::pc/index-attributes key ::pc/attr-input-in])
+          children (mapcat #(get-in idx-info [::pc/index-resolvers % ::pc/output])
+                           resolvers)
 
-        key-resolvers (get-in idx-info [::pc/index-attributes key ::pc/attr-output-in])
-        keys-to-remove (for [res key-resolvers
-                             res-key (->> req-cache keys (filter #(-> % first (= res))))]
-                         res-key)
-        new-req-cache (apply dissoc req-cache keys-to-remove)]
+          key-resolvers (get-in idx-info [::pc/index-attributes key ::pc/attr-output-in])
+          keys-to-remove (for [res key-resolvers
+                               res-key (->> req-cache keys (filter #(-> % first (= res))))]
+                           res-key)
+          new-req-cache (apply dissoc req-cache keys-to-remove)]
     (reduce (fn [acc new-key]
               (dissoc-req-cache acc idx-info new-key))
             new-req-cache children)))
 
 (defn- sm-dissoc [^js this k]
-  (let [state @(.-_state this)
-        old-cache @(:cache state)
-        old-req-cache @(:req-cache state)
-        idx-info (:idx-info state)]
+  (c/let [state @(.-_state this)
+          old-cache @(:cache state)
+          old-req-cache @(:req-cache state)
+          idx-info (:idx-info state)]
     (assoc state
            :cache (dissoc-children old-cache idx-info k)
            :req-cache (dissoc-req-cache old-req-cache idx-info k))))
 
 (defn- sm-assoc [^js this k v]
-  (let [new-state (sm-dissoc this k)]
-        ; state @(.-_state this)
-        ; old-cache @(:cache state)
-        ; old-req-cache @(:req-cache state)
-        ; idx-info (:idx-info state)
-        ; new-cache (-> old-cache
-        ;               (dissoc-children idx-info k))
-        ;
-        ;
-        ; new-req-cache (dissoc-req-cache old-req-cache idx-info k)]
+  (c/let [new-state (sm-dissoc this k)]
     (->SmartMap (update new-state :cache assoc k v))))
 
 (defn- sm-contains? [^js this, k]
-  (let [state @(.-_state this)]
-    (-> state :idx-info ::pc/index-oir (contains? k))))
+  (c/let [state @(.-_state this)]
+    (if (contains? (:not-found-cache state) k)
+      false
+      (-> state :idx-info ::pc/index-oir (contains? k)))))
 
 (extend-protocol IAssociative
   SmartMap
@@ -209,9 +204,6 @@
 ;   IFind
 ;   (-find [_ k] (sm-find env k))
 ;
-;   IMap
-;   (-dissoc [_ k] (sm-dissoc env k))
-;
 ;   IKVReduce
 ;   (-kv-reduce [_ f init]
 ;               (reduce-kv (fn [cur k v] (f cur k (wrap-smart-map env v))) init (p.ent/entity env)))
@@ -239,3 +231,7 @@
    (->SmartMap {:env env
                 :parser (gen-parser resolvers)
                 :idx-info (reduce pc/register {} resolvers)})))
+
+(->> (range 20)
+     (map (juxt identity range))
+     (into {}))
