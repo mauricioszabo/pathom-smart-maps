@@ -2,6 +2,7 @@
   (:require [pathom-smart-maps.async :as smart]
             [com.wsscode.pathom.connect :as pc]
             [clojure.test :refer [deftest run-tests]]
+            [matcher-combinators.matchers :as m]
             [promesa.core :as p]
             [check.async :refer [async-test check testing]]))
 
@@ -42,12 +43,9 @@
 #_
 (do
   (def smart (smart/smart-map [root-person full-name]))
-  #_
-  (p/let [full-name (:person/full-name smart)]
-    (prn :FULL full-name))
-  (p/let [{:keys [person/full-name]} smart]
-    (prn :F full-name)
-    (prn :F smart)))
+  (p/do!)
+   ; (:person/gn smart)
+  (count smart))
 
 (deftest sub-resolvers
   (let [smart (smart/smart-map [root-person full-name])]
@@ -76,23 +74,41 @@
         (check (:person/full-name (dissoc smart :person/gn))
                => "Name Surname")
         (check @calls => [:root-person :full-name :full-name :full-name
-                          :root-person :full-name])))))
+                          :root-person :full-name]))
+
+      (testing "behaves like a normal ClojureScript map"
+        (check (empty smart) => {})
+        (check (clone smart) => smart)))))
 
 (deftest containing-errors []
   (let [smart (smart/smart-map [root-person an-error])]
     (reset! calls [])
-    (testing "will check if a key is not part of resolvers"
-      (check (-contains-key? smart :inexistent/field) => false)
-      (check @calls => []))
+    (async-test "when some resolver gets an error"
+      (testing "will check if a key is not part of resolvers"
+        (check (-contains-key? smart :inexistent/field) => false)
+        (check @calls => []))
 
-    (testing "will capture errors"
-      (check (:error/field smart) => nil)
-      (check @calls => [:an-error]))
+      (testing "will capture errors"
+        (check (:error/field smart) => nil)
+        (check @calls => [:an-error]))
 
-    (testing "will cache errors"
-      (check (:error/field smart) => nil)
-      (check @calls => [:an-error])
-      (check (-contains-key? smart :error/field) => false))))
+      (testing "will cache errors"
+        (check (:error/field smart) => nil)
+        (check @calls => [:an-error])
+        (check (-contains-key? smart :error/field) => false)))))
+
+(deftest assoc-ing
+  (let [smart (-> [root-person full-name]
+                  smart/smart-map
+                  (assoc :person/gn "pre-added"))]
+    (async-test "will cache some of the data into the pipeline"
+      (check (:person/full-name smart) => "pre-added Surname"))))
+
+(deftest non-resolved-entities
+  (let [smart (smart/smart-map [root-person full-name])]
+    (async-test "will consider entities that WILL be resolved, but are not right now"
+      (check (seq smart) => (m/embeds [[:person/gn #(instance? js/Promise %)]]))
+      (check (count smart) => 3))))
 
 (defn- ^:dev/after-load run []
   (run-tests))
