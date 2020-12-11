@@ -43,9 +43,11 @@
 #_
 (do
   (def smart (smart/smart-map [root-person full-name]))
-  (p/do!)
-   ; (:person/gn smart)
-  (count smart))
+  (select-keys smart [:person/gn :person/full-name])
+  (seq smart)
+  ; (p/do!)
+  (:person/gn smart))
+  ; (count smart))
 
 (deftest sub-resolvers
   (let [smart (smart/smart-map [root-person full-name])]
@@ -108,6 +110,9 @@
   (let [smart (smart/smart-map [root-person full-name])]
     (async-test "will consider entities that WILL be resolved, but are not right now"
       (check (seq smart) => (m/embeds [[:person/gn #(instance? js/Promise %)]]))
+      (check (vals smart) => [#(instance? js/Promise %)
+                              #(instance? js/Promise %)
+                              #(instance? js/Promise %)])
       (check (count smart) => 3))))
 
 (defn- ^:dev/after-load run []

@@ -168,7 +168,9 @@
                  (->> state
                       get-keys-dependencies
                       keys
-                      (map (juxt identity #(get cache % (js/Promise. (fn [])))))
+                      (map (fn [k]
+                             (c/let [entry (get cache k (js/Promise. (fn [])))]
+                              (MapEntry. k entry (hash [k entry])))))
                       doall))))
 
 (extend-protocol ICloneable
