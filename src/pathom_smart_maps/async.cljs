@@ -136,20 +136,103 @@
   (c/let [new-state (sm-dissoc this k)]
     (->SmartMap (update new-state :cache assoc k v))))
 
+(defn- get-keys-dependencies [state-atom]
+  (c/let [state @state-atom]
+    (-> state :idx-info ::pc/index-oir)))
+
 (defn- sm-contains? [^js this, k]
-  (c/let [state @(.-_state this)]
+  (c/let [state-atom (.-_state this)
+          state @state-atom]
     (if (contains? (:not-found-cache state) k)
       false
-      (-> state :idx-info ::pc/index-oir (contains? k)))))
+      (-> state-atom get-keys-dependencies (contains? k)))))
 
 (extend-protocol IAssociative
   SmartMap
   (-assoc [this k v] (sm-assoc this k v))
   (-contains-key? [this k] (sm-contains? this k)))
 
+(extend-protocol ICollection
+  SmartMap
+  (-conj [this [k v]] (sm-assoc this k v)))
+
 (extend-protocol IMap
   SmartMap
   (-dissoc [this k] (->SmartMap (sm-dissoc this k))))
+
+(extend-protocol IEmptyableCollection
+  SmartMap
+  (-empty [this] (c/let [state @(.-_state this)]
+                   (->SmartMap (assoc state :cache {} :req-cache {} :not-found-cache #{})))))
+
+(extend-protocol ISeqable
+  SmartMap
+  (-seq [this] (->> this
+                    .-_state
+                    get-keys-dependencies
+                    keys
+                    (map (fn [k]
+                           (c/let [entry (get this k)]
+                             (MapEntry. k entry (hash [k entry])))))
+                    doall)))
+
+(extend-protocol ICloneable
+  SmartMap
+  (-clone [this] (-> @(.-_state this)
+                     (update :cache deref)
+                     (update :req-cache deref)
+                     ->SmartMap)))
+
+(extend-protocol IWithMeta
+  SmartMap
+  (-with-meta [this new-meta] (-> @(.-_state this)
+                                  (assoc :meta new-meta)
+                                  ->SmartMap)))
+
+(extend-protocol IMeta
+  SmartMap
+  (-meta [this] (:meta @(.-_state this))))
+
+(defn- sm-find [this k]
+  (c/let [not-found (js/Object.)]
+    (when (-contains-key? this k)
+      (.then (get this k not-found) (fn [v]
+                                      (if (= not-found v)
+                                        nil
+                                        (MapEntry. k v (hash [k v]))))))))
+
+(extend-protocol IFind
+  SmartMap
+  (-find [this k] (sm-find this k)))
+
+; (extend-protocol IChunkedSeq
+;   SmartMap
+;   (-chunked-first [coll])
+;   (-chunked-rest [coll]))
+;
+(defn- sm-reduce [sequence f seed]
+  (reduce (fn [acc-prom [key elem]]
+            (.then acc-prom
+                   (fn [acc]
+                     (.then elem
+                            (fn [val]
+                              (c/let [entry (MapEntry. key val (hash [key val]))]
+                                (f acc entry)))))))
+          (js/Promise.resolve seed)
+          sequence))
+
+(extend-protocol IReduce
+  SmartMap
+  (-reduce
+   ([this f] (c/let [[fst & rst] (seq this)] (sm-reduce rst f fst)))
+   ([this f start] (sm-reduce (seq this) f start))))
+
+(extend-protocol IKVReduce
+  SmartMap
+  (-kv-reduce [this f init]
+              (sm-reduce (seq this)
+                         (fn [acc [k v]] (f acc k v))
+                         init)))
 
 ; (deftype SmartMap [env]
 ;   ;; ES6
@@ -159,15 +242,6 @@
 ;   (has [_ k] (sm-contains? env k))
 ;   (get [_ k not-found] (-lookup (p.ent/entity env) k not-found))
 ;   (forEach [_ f] (doseq [[k v] (p.ent/entity env)] (f v k)))
-;
-;   ICloneable
-;   (-clone [_] (smart-map env (p.ent/entity env)))
-;
-;   IWithMeta
-;   (-with-meta [_ new-meta] (sm-with-meta env new-meta))
-;
-;   IMeta
-;   (-meta [_] (sm-meta env))
 ;
 ;   ICollection
 ;   (-conj [coll entry]
@@ -183,47 +257,6 @@
 ;                      (next es))
 ;                    (throw (js/Error. "conj on a map takes map entries or seqables of map entries"))))))))
 ;
-;   IEmptyableCollection
-;   (-empty [_] (sm-empty env))
-;
-;   IHash
-;   (-hash [_] (hash (p.ent/entity env)))
-;
-;   ISeqable
-;   (-seq [_]
-;         (some->> (seq (sm-keys env))
-;                  (map #(SmartMapEntry. env %))))
-;
-;   ICounted
-;   (-count [_] (count (p.ent/entity env)))
-;
-;   IAssociative
-;   (-assoc [_ k v] (sm-assoc env k v))
-;   (-contains-key? [_ k] (sm-contains? env k))
-;
-;   IFind
-;   (-find [_ k] (sm-find env k))
-;
-;   IKVReduce
-;   (-kv-reduce [_ f init]
-;               (reduce-kv (fn [cur k v] (f cur k (wrap-smart-map env v))) init (p.ent/entity env)))
-;
-;   IIterable
-;   (-iterator [this]
-;              (transformer-iterator (map #(SmartMapEntry. env %))
-;                                    (-iterator (sm-keys env)) false))
-;
-;   IReduce
-;   (-reduce [coll f] (iter-reduce coll f))
-;   (-reduce [coll f start] (iter-reduce coll f start))
-;
-;   IFn
-;   (-invoke [_ k] (sm-get env k))
-;   (-invoke [_ k not-found] (sm-get env k not-found))
-;
-;   IPrintWithWriter
-;   (-pr-writer [_ writer opts]
-;               (-pr-writer (p.ent/entity env) writer opts)))
 
 (defn smart-map
   ([resolvers] (smart-map resolvers {}))
@@ -231,7 +264,3 @@
    (->SmartMap {:env env
                 :parser (gen-parser resolvers)
                 :idx-info (reduce pc/register {} resolvers)})))
-
-(->> (range 20)
-     (map (juxt identity range))
-     (into {}))

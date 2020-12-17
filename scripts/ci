@@ -1,0 +1,5 @@
+#!/bin/bash
+
+npm i
+npx shadow-cljs release all-tests
+node target/tests.js

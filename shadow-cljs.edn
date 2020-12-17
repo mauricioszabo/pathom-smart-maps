@@ -6,4 +6,6 @@
 
  :builds {:tests {:target :node-script
                   :output-to "target/tests.js"
-                  :main pathom-smart-maps.all-tests/run}}}
+                  :main pathom-smart-maps.all-tests/run}
+          :all-tests {:target :node-test
+                      :output-to "target/tests.js"}}}
