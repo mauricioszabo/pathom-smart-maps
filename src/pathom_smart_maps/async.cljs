@@ -163,15 +163,14 @@
 
 (extend-protocol ISeqable
   SmartMap
-  (-seq [this] (c/let [state (.-_state this)
-                       cache @(:cache @state)]
-                 (->> state
-                      get-keys-dependencies
-                      keys
-                      (map (fn [k]
-                             (c/let [entry (get cache k (js/Promise. (fn [])))]
-                              (MapEntry. k entry (hash [k entry])))))
-                      doall))))
+  (-seq [this] (->> this
+                    .-_state
+                    get-keys-dependencies
+                    keys
+                    (map (fn [k]
+                           (c/let [entry (get this k)]
+                             (MapEntry. k entry (hash [k entry])))))
+                    doall)))
 
 (extend-protocol ICloneable
   SmartMap
@@ -189,6 +188,40 @@
 (extend-protocol IMeta
   SmartMap
   (-meta [this] (:meta @(.-_state this))))
+
+(defn- sm-find [this k]
+  (c/let [not-found (js/Object.)]
+    (when (-contains-key? this k)
+      (.then (get this k not-found) (fn [v]
+                                      (if (= not-found v)
+                                        nil
+                                        (MapEntry. k v (hash [k v]))))))))
+
+(extend-protocol IFind
+  SmartMap
+  (-find [this k] (sm-find this k)))
+
+; (extend-protocol IChunkedSeq
+;   SmartMap
+;   (-chunked-first [coll])
+;   (-chunked-rest [coll]))
+;
+(defn- sm-reduce [sequence f seed]
+  (reduce (fn [acc-prom [key elem]]
+            (.then acc-prom
+                   (fn [acc]
+                     (.then elem
+                            (fn [val]
+                             (c/let [entry (MapEntry. key val (hash [key val]))]
+                               (f acc entry)))))))
+          (js/Promise.resolve seed)
+          sequence))
+
+(extend-protocol IReduce
+  SmartMap
+  (-reduce
+   ([this f] (c/let [[fst & rst] (seq this)] (sm-reduce rst f fst)))
+   ([this f start] (sm-reduce (seq this) f start))))
 
 ; (deftype SmartMap [env]
 ;   ;; ES6
@@ -213,9 +246,6 @@
 ;                      (next es))
 ;                    (throw (js/Error. "conj on a map takes map entries or seqables of map entries"))))))))
 ;
-;   IFind
-;   (-find [_ k] (sm-find env k))
-;
 ;   IKVReduce
 ;   (-kv-reduce [_ f init]
 ;               (reduce-kv (fn [cur k v] (f cur k (wrap-smart-map env v))) init (p.ent/entity env)))
@@ -224,14 +254,6 @@
 ;   (-iterator [this]
 ;              (transformer-iterator (map #(SmartMapEntry. env %))
 ;                                    (-iterator (sm-keys env)) false))
-;
-;   IReduce
-;   (-reduce [coll f] (iter-reduce coll f))
-;   (-reduce [coll f start] (iter-reduce coll f start))
-;
-;   IPrintWithWriter
-;   (-pr-writer [_ writer opts]
-;               (-pr-writer (p.ent/entity env) writer opts)))
 
 (defn smart-map
   ([resolvers] (smart-map resolvers {}))
