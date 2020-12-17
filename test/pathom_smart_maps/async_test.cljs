@@ -138,17 +138,3 @@
 
 (defn- ^:dev/after-load run []
   (run-tests))
-
-#_
-(do
-  (def smart (smart/smart-map [root-person full-name]))
-  reduce
-  (next smart)
-  (map identity smart)
-  ; (select-keys smart [:person/gn :person/full-name])
-  ; (seq smart)
-  (p/do!
-   ; (:person/gn smart)
-   (find smart :person/gn)))
-  ; (:person/gn smart))
-  ; (count smart))
