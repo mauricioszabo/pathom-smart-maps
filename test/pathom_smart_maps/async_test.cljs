@@ -40,15 +40,6 @@
       (smart/let [{:person/keys [gn]} smart]
         (check gn => "Name")))))
 
-#_
-(do
-  (def smart (smart/smart-map [root-person full-name]))
-  (select-keys smart [:person/gn :person/full-name])
-  (seq smart)
-  ; (p/do!)
-  (:person/gn smart))
-  ; (count smart))
-
 (deftest sub-resolvers
   (let [smart (smart/smart-map [root-person full-name])]
     (reset! calls [])
@@ -109,11 +100,42 @@
 (deftest non-resolved-entities
   (let [smart (smart/smart-map [root-person full-name])]
     (async-test "will consider entities that WILL be resolved, but are not right now"
-      (check (seq smart) => (m/embeds [[:person/gn #(instance? js/Promise %)]]))
-      (check (vals smart) => [#(instance? js/Promise %)
-                              #(instance? js/Promise %)
-                              #(instance? js/Promise %)])
-      (check (count smart) => 3))))
+      (testing "implements find correctly"
+        (check (find smart :person/invalid) => nil)
+        (check (find smart :person/gn) => [:person/gn "Name"]))
+
+      (testing "gets info about unresolved entities"
+        (check (seq smart) => (m/embeds [[:person/gn #(instance? js/Promise %)]]))
+        (check (p/all (vals smart)) => (m/in-any-order ["Name"
+                                                        "Surname"
+                                                        "Name Surname"]))
+        (check (count smart) => 3))
+
+      (testing "reduce will only resolve on the end"
+        (let [mapped (reduce (fn [acc [k v]] (str acc " | " k " - " v))
+                             ""
+                             (smart/smart-map [root-person]))]
+          (check mapped => " | :person/gn - Name | :person/sn - Surname")))
+
+      #_
+      (testing "map will only resolve on the end"
+        (let [mapped (map (fn [[k v]] (str k " - " v)) (smart/smart-map [root-person]))]
+          (check (p/all mapped) => (m/in-any-order [":person/gn - Name"
+                                                    ":person/sn - Surname"])))))))
 
 (defn- ^:dev/after-load run []
   (run-tests))
+
+#_
+(do
+  (def smart (smart/smart-map [root-person full-name]))
+  reduce
+  (next smart)
+  (map identity smart)
+  ; (select-keys smart [:person/gn :person/full-name])
+  ; (seq smart)
+  (p/do!
+   ; (:person/gn smart)
+   (find smart :person/gn)))
+  ; (:person/gn smart))
+  ; (count smart))
