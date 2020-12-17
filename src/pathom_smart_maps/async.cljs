@@ -152,6 +152,10 @@
   (-assoc [this k v] (sm-assoc this k v))
   (-contains-key? [this k] (sm-contains? this k)))
 
+(extend-protocol ICollection
+  SmartMap
+  (-conj [this [k v]] (sm-assoc this k v)))
+
 (extend-protocol IMap
   SmartMap
   (-dissoc [this k] (->SmartMap (sm-dissoc this k))))

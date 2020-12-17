@@ -54,19 +54,26 @@
                           :person/full-name "Name Surname"})
          (check @calls => [:root-person :full-name])))
 
-      (testing "un-cache results if you assoc a parent data"
+      (testing "un-caches results if you assoc a parent data"
         (check (:person/full-name (assoc smart :person/gn "Other"))
                => "Other Surname")
         (check @calls => [:root-person :full-name :full-name]))
 
+      (testing "un-caches results if you conj a parent data"
+        (check (:person/full-name (conj smart [:person/gn "Another"]))
+               => "Another Surname")
+        (check @calls => [:root-person :full-name :full-name :full-name]))
+
       (testing "un-cache results if you dissoc some data"
         (check (:person/full-name (dissoc smart :person/full-name))
                => "Name Surname")
-        (check @calls => [:root-person :full-name :full-name :full-name])
+        (check @calls => [:root-person :full-name :full-name
+                          :full-name :full-name])
 
         (check (:person/full-name (dissoc smart :person/gn))
                => "Name Surname")
-        (check @calls => [:root-person :full-name :full-name :full-name
+        (check @calls => [:root-person :full-name :full-name
+                          :full-name :full-name
                           :root-person :full-name]))
 
       (testing "behaves like a normal ClojureScript map"
