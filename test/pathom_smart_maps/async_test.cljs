@@ -115,6 +115,12 @@
         (let [mapped (reduce (fn [acc [k v]] (str acc " | " k " - " v))
                              ""
                              (smart/smart-map [root-person]))]
+          (check mapped => " | :person/gn - Name | :person/sn - Surname"))
+
+        (let [mapped (reduce-kv (fn [acc k v]
+                                  (str acc " | " k " - " v))
+                             ""
+                             (smart/smart-map [root-person]))]
           (check mapped => " | :person/gn - Name | :person/sn - Surname")))
 
       #_

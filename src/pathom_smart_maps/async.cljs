@@ -212,8 +212,8 @@
                    (fn [acc]
                      (.then elem
                             (fn [val]
-                             (c/let [entry (MapEntry. key val (hash [key val]))]
-                               (f acc entry)))))))
+                              (c/let [entry (MapEntry. key val (hash [key val]))]
+                                (f acc entry)))))))
           (js/Promise.resolve seed)
           sequence))
 
@@ -222,6 +222,13 @@
   (-reduce
    ([this f] (c/let [[fst & rst] (seq this)] (sm-reduce rst f fst)))
    ([this f start] (sm-reduce (seq this) f start))))
+
+(extend-protocol IKVReduce
+  SmartMap
+  (-kv-reduce [this f init]
+              (sm-reduce (seq this)
+                         (fn [acc [k v]] (f acc k v))
+                         init)))
 
 ; (deftype SmartMap [env]
 ;   ;; ES6
@@ -246,14 +253,6 @@
 ;                      (next es))
 ;                    (throw (js/Error. "conj on a map takes map entries or seqables of map entries"))))))))
 ;
-;   IKVReduce
-;   (-kv-reduce [_ f init]
-;               (reduce-kv (fn [cur k v] (f cur k (wrap-smart-map env v))) init (p.ent/entity env)))
-;
-;   IIterable
-;   (-iterator [this]
-;              (transformer-iterator (map #(SmartMapEntry. env %))
-;                                    (-iterator (sm-keys env)) false))
 
 (defn smart-map
   ([resolvers] (smart-map resolvers {}))
