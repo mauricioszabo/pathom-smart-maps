@@ -1,14 +1,18 @@
-# pathom-smart-maps
+# Pathom Smart-maps
+[![Clojars Project](https://img.shields.io/clojars/v/pathom-smart-maps.svg)](https://clojars.org/pathom-smart-maps)
 
-A Clojure library designed to ... well, that part is up to you.
+An implementation of Pathom3's Smart Maps for Pathom2 and ClojureScript (for now).
+
+It's basically a way to support async resolvers for smart-maps in ClojureScript without
+having to version-bump to Pathom3
 
 ## Usage
 
-FIXME
+See [async_test.cljs](test/pathom_smart_maps/async_test.cljs) for now...
 
 ## License
 
-Copyright © 2020 FIXME
+Copyright © 2020 Maurício Szabo
 
 This program and the accompanying materials are made available under the
 terms of the Eclipse Public License 2.0 which is available at
