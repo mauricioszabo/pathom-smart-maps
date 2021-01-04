@@ -111,13 +111,6 @@
         (check (find smart :person/invalid) => nil)
         (check (find smart :person/gn) => [:person/gn "Name"]))
 
-      (testing "gets info about unresolved entities"
-        (check (seq smart) => (m/embeds [[:person/gn #(instance? js/Promise %)]]))
-        (check (p/all (vals smart)) => (m/in-any-order ["Name"
-                                                        "Surname"
-                                                        "Name Surname"]))
-        (check (count smart) => 3))
-
       (testing "reduce will only resolve on the end"
         (let [mapped (reduce (fn [acc [k v]] (str acc " | " k " - " v))
                              ""
@@ -135,6 +128,41 @@
         (let [mapped (map (fn [[k v]] (str k " - " v)) (smart/smart-map [root-person]))]
           (check (p/all mapped) => (m/in-any-order [":person/gn - Name"
                                                     ":person/sn - Surname"])))))))
+
+(pc/defresolver children [_ _]
+  {::pc/input #{}
+   ::pc/output [{:person/children [:person/full-name :person/age]}]}
+  {:person/children [{:person/full-name "Child One" :person/age 9}
+                     {:person/full-name "Child Two" :person/age 12}]})
+
+(pc/defresolver birthday [_ {:keys [person/age]}]
+  {::pc/input #{:person/age}
+   ::pc/output [:person/next-age]}
+
+  {:person/next-age (inc age)})
+
+(deftest nested-smart-maps
+  (let [smart (smart/smart-map [children birthday])]
+    (async-test "will consider some smart-maps results as other smart-maps")))
+      ; (testing "seq will not change :person/next-age of maps that do not have age"
+      ;   (check (seq (smart/smart-map [children birthday]))
+      ;          => [[:person/children #(instance? js/Promise %)]])))))
+      ; (testing "captures nested map"
+      ;   (check (:person/children smart)
+      ;          => (m/equals [{:person/full-name "Child One" :person/age 9}
+      ;                        {:person/full-name "Child Two" :person/age 12}]))))))
+
+      ; (testing "resolves birthday for the first child only"
+      ;   (check (-> smart :person/children first :person/next-age) => 10)
+      ;   (check (:person/children smart)
+      ;          => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
+      ;                        {:person/full-name "Child Two" :person/age 12}]))))))
+
+#_
+(def smart (smart/smart-map [children birthday]))
+#_
+(first smart)
+; (-> smart :person/children first)
 
 (defn- ^:dev/after-load run []
   (run-tests))

@@ -80,6 +80,7 @@
     #(do %)))
 
 (defn- sm-get [^js sm k default]
+  (def s (.-_state sm))
   (c/let [state (.-_state sm)
           {:keys [not-found-cache cache eql]} @state
           cached (find @cache k)]
@@ -165,16 +166,26 @@
   (-empty [this] (c/let [state @(.-_state this)]
                    (->SmartMap (assoc state :cache {} :req-cache {} :not-found-cache #{})))))
 
+(defn- sm-seq [^js this]
+  (c/let [not-found (js/Object.)]
+    (->> this
+         .-_state
+         ; get-keys-dependencies
+         ; keys
+         ; (map (fn [k]
+         ;        (c/let [entry (get this k not-found)]
+         ;          (MapEntry. k entry (hash [k entry])))))
+         ; (remove (fn [kv] (= not-found (val kv))))
+         ; doall
+         deref
+         :cache
+         deref
+         seq)))
+
+
 (extend-protocol ISeqable
   SmartMap
-  (-seq [this] (->> this
-                    .-_state
-                    get-keys-dependencies
-                    keys
-                    (map (fn [k]
-                           (c/let [entry (get this k)]
-                             (MapEntry. k entry (hash [k entry])))))
-                    doall)))
+  (-seq [this] (sm-seq this)))
 
 (extend-protocol ICloneable
   SmartMap
@@ -205,62 +216,127 @@
   SmartMap
   (-find [this k] (sm-find this k)))
 
-; (extend-protocol IChunkedSeq
-;   SmartMap
-;   (-chunked-first [coll])
-;   (-chunked-rest [coll]))
-;
+(defn- sm-doall [^js this]
+  (c/let [not-found (js/Object.)
+          kvs-prom (->> this
+                        .-_state
+                        get-keys-dependencies
+                        keys
+                        (map (fn [k]
+                               (-> this
+                                   (get k not-found)
+                                   (.then (fn [v] [k v])))))
+                        (js/Promise.all))]
+    (.then kvs-prom (fn [kvs] (remove #(-> % second (= not-found)) kvs)))))
+
 (defn- sm-reduce [sequence f seed]
-  (reduce (fn [acc-prom [key elem]]
+  (reduce (fn [acc-prom [key val]]
             (.then acc-prom
                    (fn [acc]
-                     (.then elem
-                            (fn [val]
-                              (c/let [entry (MapEntry. key val (hash [key val]))]
-                                (f acc entry)))))))
+                     (c/let [entry (MapEntry. key val (hash [key val]))]
+                       (f acc entry)))))
           (js/Promise.resolve seed)
           sequence))
 
 (extend-protocol IReduce
   SmartMap
   (-reduce
-   ([this f] (c/let [[fst & rst] (seq this)] (sm-reduce rst f fst)))
-   ([this f start] (sm-reduce (seq this) f start))))
+   ([this f] (-> this sm-doall (.then (fn [[fst & rst]] (sm-reduce rst f fst)))))
+   ([this f seed] (-> this sm-doall (.then (fn [seq] (sm-reduce seq f seed)))))))
 
 (extend-protocol IKVReduce
   SmartMap
   (-kv-reduce [this f init]
-              (sm-reduce (seq this)
-                         (fn [acc [k v]] (f acc k v))
-                         init)))
+              (-> this
+                  sm-doall
+                  (.then
+                   #(sm-reduce % (fn [acc [k v]] (f acc k v)) init)))))
 
-; (deftype SmartMap [env]
-;   ;; ES6
-;   (keys [_] (es6-iterator (sm-keys env)))
-;   (entries [_] (es6-entries-iterator (seq (p.ent/entity env))))
-;   (values [_] (es6-iterator (vals (p.ent/entity env))))
-;   (has [_ k] (sm-contains? env k))
-;   (get [_ k not-found] (-lookup (p.ent/entity env) k not-found))
-;   (forEach [_ f] (doseq [[k v] (p.ent/entity env)] (f v k)))
+; (extend-protocol INext
+;   (-next [this]))
 ;
-;   ICollection
-;   (-conj [coll entry]
-;          (if (vector? entry)
-;            (-assoc coll (-nth entry 0) (-nth entry 1))
-;            (loop [ret coll
-;                   es  (seq entry)]
-;              (if (nil? es)
-;                ret
-;                (let [e (first es)]
-;                  (if (vector? e)
-;                    (recur (-assoc ret (-nth e 0) (-nth e 1))
-;                      (next es))
-;                    (throw (js/Error. "conj on a map takes map entries or seqables of map entries"))))))))
-;
-
 (defn smart-map
   ([resolvers] (smart-map resolvers {}))
   ([resolvers env]
    (->SmartMap {:env env
                 :parser (gen-parser resolvers)
                 :idx-info (reduce pc/register {} resolvers)})))
+
+; (deftype PersistentVector [meta cnt shift root tail ^:mutable __hash]
+;   Object
+;   (toString [coll])
+;   (equiv [this other])
+;   (indexOf [coll x])
+;   (indexOf [coll x start])
+;   (lastIndexOf [coll x])
+;   (lastIndexOf [coll x start])
+;
+;   ICloneable
+;   (-clone [_])
+;
+;   IWithMeta
+;   (-with-meta [coll new-meta])
+;
+;   IMeta
+;   (-meta [coll] meta)
+;
+;   IStack
+;   (-peek [coll])
+;   (-pop [coll])
+;
+;   ICollection
+;   (-conj [coll o])
+;
+;   IEmptyableCollection
+;   (-empty [coll])
+;
+;   ISequential
+;   IEquiv
+;   (-equiv [coll other])
+;
+;   IHash
+;   (-hash [coll])
+;
+;   ISeqable
+;   (-seq [coll])
+;
+;   ICounted
+;   (-count [coll])
+;
+;   IIndexed
+;   (-nth [coll n])
+;   (-nth [coll n not-found])
+;
+;   ILookup
+;   (-lookup [coll k])
+;   (-lookup [coll k not-found])
+;
+;   IAssociative
+;   (-assoc [coll k v])
+;   (-contains-key? [coll k])
+;
+;   IFind
+;   (-find [coll n])
+;
+;   APersistentVector
+;   IVector
+;   (-assoc-n [coll n val])
+;
+;   IReduce
+;   (-reduce [v f])
+;   (-reduce [v f init])
+;
+;   IKVReduce
+;
+;   IFn
+;   (-invoke [coll k])
+;   (-invoke [coll k not-found])
+;
+;   IEditableCollection
+;   (-as-transient [coll])
+;
+;   IReversible
+;   (-rseq [coll])
+;
+;   IIterable
+;   (-iterator [this]))
