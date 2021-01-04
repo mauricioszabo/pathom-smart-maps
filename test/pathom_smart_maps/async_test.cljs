@@ -143,20 +143,17 @@
 
 (deftest nested-smart-maps
   (let [smart (smart/smart-map [children birthday])]
-    (async-test "will consider some smart-maps results as other smart-maps")))
-      ; (testing "seq will not change :person/next-age of maps that do not have age"
-      ;   (check (seq (smart/smart-map [children birthday]))
-      ;          => [[:person/children #(instance? js/Promise %)]])))))
-      ; (testing "captures nested map"
-      ;   (check (:person/children smart)
-      ;          => (m/equals [{:person/full-name "Child One" :person/age 9}
-      ;                        {:person/full-name "Child Two" :person/age 12}]))))))
+    (async-test "will consider some smart-maps results as other smart-maps"
+      (testing "captures nested map"
+        (check (:person/children smart)
+               => (m/equals [{:person/full-name "Child One" :person/age 9}
+                             {:person/full-name "Child Two" :person/age 12}])))
 
-      ; (testing "resolves birthday for the first child only"
-      ;   (check (-> smart :person/children first :person/next-age) => 10)
-      ;   (check (:person/children smart)
-      ;          => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
-      ;                        {:person/full-name "Child Two" :person/age 12}]))))))
+      (testing "resolves birthday for the first child only"
+        (check (-> smart :person/children first :person/next-age) => 10)
+        (check (:person/children smart)
+               => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
+                             {:person/full-name "Child Two" :person/age 12}]))))))
 
 #_
 (def smart (smart/smart-map [children birthday]))
