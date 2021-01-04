@@ -170,13 +170,6 @@
   (c/let [not-found (js/Object.)]
     (->> this
          .-_state
-         ; get-keys-dependencies
-         ; keys
-         ; (map (fn [k]
-         ;        (c/let [entry (get this k not-found)]
-         ;          (MapEntry. k entry (hash [k entry])))))
-         ; (remove (fn [kv] (= not-found (val kv))))
-         ; doall
          deref
          :cache
          deref
