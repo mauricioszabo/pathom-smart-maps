@@ -18,15 +18,6 @@
                   p/error-handler-plugin
                   p/trace-plugin]}))
 
-(defn- eql [parser env query]
-  (js/Promise.
-   (fn [resolve reject]
-       (async/go
-         (try
-           (resolve (async/<! (parser env query)))
-           (catch :default e
-             (reject e)))))))
-
 (def SmartMap (js* "class SmartMap extends Promise {}"))
 
 (defn- norm-cache [cache]
@@ -37,21 +28,32 @@
      (instance? Atom cache) @cache
      :else cache)))
 
-(defn- ->SmartMap [{:keys [cache req-cache not-found-cache env] :as params}]
+(defn- state-from-params
+  [{:keys [cache cursor req-cache not-found-cache env] :as params}]
+  (c/let [req-cache (norm-cache req-cache)
+          cache (norm-cache cache)]
+    (assoc params
+           :env (assoc env
+                       ::p/entity cache
+                       ::p/request-cache req-cache)
+           :cursor (or cursor [])
+           :cache cache
+           :req-cache req-cache
+           :not-found-cache (or not-found-cache #{}))))
+
+(defn- ->SmartMap [{:keys [cache cursor req-cache not-found-cache env] :as params}]
   (c/let [req-cache (norm-cache req-cache)
           cache (norm-cache cache)
           state (assoc params
                        :env (assoc env
                                    ::p/entity cache
                                    ::p/request-cache req-cache)
-
+                       :cursor (or cursor [])
                        :cache cache
                        :req-cache req-cache
                        :not-found-cache (or not-found-cache #{}))]
-    (if (map? @cache)
-      (doto (. SmartMap resolve state)
-            (aset "_state" (atom state)))
-      (js/Promise.resolve @cache))))
+    (doto (. SmartMap resolve state)
+          (aset "_state" (atom state)))))
 
 (defn- compare-to [^js this other]
   (if (instance? SmartMap other)
@@ -61,7 +63,7 @@
 (defn- sm-then [^js this fun]
   (c/let [old-state @(.-_state this)
           cache (:cache old-state)
-          res (fun @cache)]
+          res (fun (get-in @cache (:cursor old-state)))]
     (if (instance? js/Promise res)
       (.then res #(->SmartMap (assoc old-state :cache % :req-cache {})))
       (->SmartMap (assoc old-state :cache res :req-cache {})))))
@@ -75,20 +77,33 @@
   SmartMap
   (-equiv [this other] (compare-to this other)))
 
-(defn- make-query! [state cache k]
-  (.then (eql (:parser @state) (:env @state) [k])
-    #(do %)))
+(defn- make-query! [state k]
+  (c/let [{:keys [parser env]} @state]
+    (js/Promise.
+     (fn [resolve reject]
+       (async/go
+         (try
+           (resolve (async/<! (parser env [k])))
+           (catch :default e
+             (reject e))))))))
+
+
+(defn- wrap-result [^js sm [key cached-value]]
+  (c/let [state @(.-_state sm)]
+    (if (coll? cached-value)
+      (->SmartMap (update state :cursor conj key))
+      (js/Promise.resolve cached-value))))
 
 (defn- sm-get [^js sm k default]
-  (def s (.-_state sm))
   (c/let [state (.-_state sm)
-          {:keys [not-found-cache cache eql]} @state
-          cached (find @cache k)]
+          {:keys [not-found-cache cache eql cursor]} @state
+          cache (get-in @cache cursor)
+          cached (find cache k)]
     (cond
       ;; FIXME: check if this should be a Promise
-      cached (js/Promise.resolve (second cached))
+      cached (wrap-result sm cached)
       (contains? not-found-cache k) (js/Promise.resolve default)
-      :else (.then (make-query! state cache k)
+      :else (.then (make-query! state k)
                    (fn [res]
                      (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
                        (swap! state update :not-found-cache conj k)
@@ -175,7 +190,6 @@
          deref
          seq)))
 
-
 (extend-protocol ISeqable
   SmartMap
   (-seq [this] (sm-seq this)))
@@ -242,12 +256,8 @@
   (-kv-reduce [this f init]
               (-> this
                   sm-doall
-                  (.then
-                   #(sm-reduce % (fn [acc [k v]] (f acc k v)) init)))))
+                  (.then #(sm-reduce % (fn [acc [k v]] (f acc k v)) init)))))
 
-; (extend-protocol INext
-;   (-next [this]))
-;
 (defn smart-map
   ([resolvers] (smart-map resolvers {}))
   ([resolvers env]
