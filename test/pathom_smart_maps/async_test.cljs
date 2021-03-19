@@ -37,14 +37,12 @@
       (.then #(do (prn :FINAL-RES-3 %) 30))
       type)
       ; (do nil))
-; (prn :CON-TE-PARTIRO (type (:person/sn smap)))
 
 #_
 (let [s (.. js/Promise -prototype -then
             (bind smap))]
   (s (fn [a] (prn :A a))))
 
-#_
 (deftest root-resolver
   (async-test "resolving roots"
     (let [map (smart/smart-map [root-person])]
