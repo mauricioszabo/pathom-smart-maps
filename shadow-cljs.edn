@@ -2,7 +2,8 @@
 {:source-paths ["src" "test"]
 
  :dependencies [[com.wsscode/pathom "2.3.0-alpha17"]
-                [check "0.2.0-SNAPSHOT"]]
+                [check "0.2.0-SNAPSHOT"]
+                [binaryage/devtools "1.0.2"]]
 
  :builds {:tests {:target :node-script
                   :output-to "target/tests.js"
