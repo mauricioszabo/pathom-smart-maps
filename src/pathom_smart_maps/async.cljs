@@ -113,18 +113,11 @@
           {:keys [not-found-cache cache eql cursor]} @state
           cache (get-in @cache cursor)
           cached (find cache k)]
-    (prn :CACHED? cached)
     (cond
       ;; FIXME: check if this should be a Promise
       cached (wrap-result sm cached)
       (contains? not-found-cache k) default
       :else (make-query! sm k default))))
-      ; :else (.then (make-query! state k)
-      ;              (fn [res]
-      ;                (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
-      ;                  (swap! state update :not-found-cache conj k)
-      ;                  (swap! (:cache @state) merge res))
-      ;                (sm-get sm k default))))))
 
 (extend-protocol ILookup
   SmartMap
@@ -223,21 +216,7 @@
           cache (:cache old-state)
           value (:final-val old-state (get-in @cache (:cursor old-state)))]
     (fun value)))
-          ; _ (prn :VAL-TO-BE-CALLED value aidi)]))
-    ;       res (fun value)]
-    ; (prn :REDEFINING-VAL-WITH res (instance? SmartMap res) aidi)
-    ; (cond
-    ;   (instance? js/Promise res) res
-    ;   ; (instance? js/Promise res) (.then res #(do
-    ;   ;                                          (prn :REDEFINING-INSIDE-PROM %)
-    ;   ;                                          (-> old-state
-    ;   ;                                              (assoc :final-val %)
-    ;   ;                                              atom)))
-    ;   :else (-> old-state
-    ;             (assoc :final-val res)
-    ;             atom))))
 
-(def aidi (atom nil))
 (extend-type SmartMap
   Object
   (equiv [this other] (compare-to this other))
