@@ -51,64 +51,80 @@
                        :cursor (or cursor [])
                        :cache cache
                        :req-cache req-cache
-                       :not-found-cache (or not-found-cache #{}))]
+                       :not-found-cache (or not-found-cache #{}))
+          state (atom state)]
     (doto (. SmartMap resolve state)
-          (aset "_state" (atom state)))))
+          (aset "_state" state))))
 
 (defn- compare-to [^js this other]
   (if (instance? SmartMap other)
     (= (.-_state this) (.-_state other))
     (= (.-_state this) other)))
 
-(defn- sm-then [^js this fun]
-  (c/let [old-state @(.-_state this)
-          cache (:cache old-state)
-          res (fun (get-in @cache (:cursor old-state)))]
-    (if (instance? js/Promise res)
-      (.then res #(->SmartMap (assoc old-state :cache % :req-cache {})))
-      (->SmartMap (assoc old-state :cache res :req-cache {})))))
-
-(extend-protocol Object
-  SmartMap
-  (equiv [this other] (compare-to this other))
-  (then [this fun] (sm-then this fun)))
-
-(extend-protocol IEquiv
-  SmartMap
-  (-equiv [this other] (compare-to this other)))
-
-(defn- make-query! [state k]
-  (c/let [{:keys [parser env]} @state]
-    (js/Promise.
-     (fn [resolve reject]
-       (async/go
-         (try
-           (resolve (async/<! (parser env [k])))
-           (catch :default e
-             (reject e))))))))
-
-
 (defn- wrap-result [^js sm [key cached-value]]
   (c/let [state @(.-_state sm)]
-    (if (coll? cached-value)
-      (->SmartMap (update state :cursor conj key))
-      (js/Promise.resolve cached-value))))
+    (->SmartMap (update state :cursor conj key))))
+    ; (prn :WRAP cached-value (coll? cached-value))
+    ; (if (coll? cached-value)
+    ;   (->SmartMap (update state :cursor conj key))
+    ;   (js/Promise.resolve cached-value))))
+
+(declare sm-get)
+; (defn- make-query! [^js sm k default]
+;   (c/let [state (.-_state sm)
+;           {:keys [parser env]} @state
+;           new-sm (doto (. SmartMap resolve state)
+;                        (aset "_state" (atom state)))]
+;     (.then sm
+;            (fn [resolve reject]
+;              (prn :AND?)
+;              (async/go
+;                ;; FIXME - error case
+;                (c/let [res (async/<! (parser env [k]))]
+;                  (prn :RESULT-FROM-QUERY res)
+;                  (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
+;                    (swap! state update :not-found-cache conj k)
+;                    (swap! (:cache @state) merge res))
+;                  (resolve (sm-get sm k default))))))))
+(defn- make-query! [^js sm k default]
+  (c/let [state (.-_state sm)
+          {:keys [parser env]} @state]
+          ; new-sm (doto (. SmartMap resolve state)
+          ;              (aset "_state" (atom state)))]
+    (-> (SmartMap.
+         (fn [resolve reject]
+           ; (prn :BEFORE-GO)
+           (async/go
+             ;; FIXME - error case
+             (c/let [res (async/<! (parser env [k]))]
+               ; (prn :RESULT-FROM-QUERY res)
+               (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
+                 (swap! state update :not-found-cache conj k)
+                 (swap! (:cache @state) merge res))
+               ; (prn :WILL-RESOLVE)
+               (resolve state)))))
+        (doto (aset "_state" state))
+        (.then #(do
+                  ; (prn :PROMISE-THEN)
+                  (sm-get sm k default))))))
 
 (defn- sm-get [^js sm k default]
   (c/let [state (.-_state sm)
           {:keys [not-found-cache cache eql cursor]} @state
           cache (get-in @cache cursor)
           cached (find cache k)]
+    (prn :CACHED? cached)
     (cond
       ;; FIXME: check if this should be a Promise
       cached (wrap-result sm cached)
-      (contains? not-found-cache k) (js/Promise.resolve default)
-      :else (.then (make-query! state k)
-                   (fn [res]
-                     (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
-                       (swap! state update :not-found-cache conj k)
-                       (swap! (:cache @state) merge res))
-                     (sm-get sm k default))))))
+      (contains? not-found-cache k) default
+      :else (make-query! sm k default))))
+      ; :else (.then (make-query! state k)
+      ;              (fn [res]
+      ;                (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
+      ;                  (swap! state update :not-found-cache conj k)
+      ;                  (swap! (:cache @state) merge res))
+      ;                (sm-get sm k default))))))
 
 (extend-protocol ILookup
   SmartMap
@@ -163,24 +179,6 @@
       false
       (-> state-atom get-keys-dependencies (contains? k)))))
 
-(extend-protocol IAssociative
-  SmartMap
-  (-assoc [this k v] (sm-assoc this k v))
-  (-contains-key? [this k] (sm-contains? this k)))
-
-(extend-protocol ICollection
-  SmartMap
-  (-conj [this [k v]] (sm-assoc this k v)))
-
-(extend-protocol IMap
-  SmartMap
-  (-dissoc [this k] (->SmartMap (sm-dissoc this k))))
-
-(extend-protocol IEmptyableCollection
-  SmartMap
-  (-empty [this] (c/let [state @(.-_state this)]
-                   (->SmartMap (assoc state :cache {} :req-cache {} :not-found-cache #{})))))
-
 (defn- sm-seq [^js this]
   (c/let [not-found (js/Object.)]
     (->> this
@@ -190,27 +188,6 @@
          deref
          seq)))
 
-(extend-protocol ISeqable
-  SmartMap
-  (-seq [this] (sm-seq this)))
-
-(extend-protocol ICloneable
-  SmartMap
-  (-clone [this] (-> @(.-_state this)
-                     (update :cache deref)
-                     (update :req-cache deref)
-                     ->SmartMap)))
-
-(extend-protocol IWithMeta
-  SmartMap
-  (-with-meta [this new-meta] (-> @(.-_state this)
-                                  (assoc :meta new-meta)
-                                  ->SmartMap)))
-
-(extend-protocol IMeta
-  SmartMap
-  (-meta [this] (:meta @(.-_state this))))
-
 (defn- sm-find [this k]
   (c/let [not-found (js/Object.)]
     (when (-contains-key? this k)
@@ -218,10 +195,6 @@
                                       (if (= not-found v)
                                         nil
                                         (MapEntry. k v (hash [k v]))))))))
-
-(extend-protocol IFind
-  SmartMap
-  (-find [this k] (sm-find this k)))
 
 (defn- sm-doall [^js this]
   (c/let [not-found (js/Object.)
@@ -245,23 +218,96 @@
           (js/Promise.resolve seed)
           sequence))
 
-(extend-protocol IReduce
-  SmartMap
+(defn- sm-then [old-state fun]
+  (c/let [old-state @old-state
+          cache (:cache old-state)
+          value (:final-val old-state (get-in @cache (:cursor old-state)))]
+    (fun value)))
+          ; _ (prn :VAL-TO-BE-CALLED value aidi)]))
+    ;       res (fun value)]
+    ; (prn :REDEFINING-VAL-WITH res (instance? SmartMap res) aidi)
+    ; (cond
+    ;   (instance? js/Promise res) res
+    ;   ; (instance? js/Promise res) (.then res #(do
+    ;   ;                                          (prn :REDEFINING-INSIDE-PROM %)
+    ;   ;                                          (-> old-state
+    ;   ;                                              (assoc :final-val %)
+    ;   ;                                              atom)))
+    ;   :else (-> old-state
+    ;             (assoc :final-val res)
+    ;             atom))))
+
+(def aidi (atom nil))
+(extend-type SmartMap
+  Object
+  (equiv [this other] (compare-to this other))
+  (then [this fun]
+    (c/let [this-state (.-_state this)
+            super (.. js/Promise -prototype -then (bind this))
+            state-var (atom nil)
+            res-super
+            (super (fn [state]
+                     (reset! state-var state)
+                     (sm-then state fun)))
+            other-super (.. js/Promise -prototype -then (bind res-super))]
+      (other-super (fn [elem]
+                     (-> @@state-var
+                         (assoc :final-val elem)
+                         atom)))))
+
+  IEquiv
+  (-equiv [this other] (compare-to this other))
+
+  IAssociative
+  (-assoc [this k v] (sm-assoc this k v))
+  (-contains-key? [this k] (sm-contains? this k))
+
+  ICollection
+  (-conj [this [k v]] (sm-assoc this k v))
+
+  IMap
+  (-dissoc [this k] (->SmartMap (sm-dissoc this k)))
+
+  IEmptyableCollection
+  (-empty [this] (c/let [state @(.-_state this)]
+                   (->SmartMap (assoc state :cache {} :req-cache {} :not-found-cache #{}))))
+
+  IReduce
   (-reduce
    ([this f] (-> this sm-doall (.then (fn [[fst & rst]] (sm-reduce rst f fst)))))
-   ([this f seed] (-> this sm-doall (.then (fn [seq] (sm-reduce seq f seed)))))))
+   ([this f seed] (-> this sm-doall (.then (fn [seq] (sm-reduce seq f seed))))))
 
-(extend-protocol IKVReduce
-  SmartMap
+  IKVReduce
   (-kv-reduce [this f init]
               (-> this
                   sm-doall
-                  (.then #(sm-reduce % (fn [acc [k v]] (f acc k v)) init)))))
+                  (.then #(sm-reduce % (fn [acc [k v]] (f acc k v)) init))))
+
+  ISeqable
+  (-seq [this] (sm-seq this))
+
+  ICloneable
+  (-clone [this] (-> @(.-_state this)
+                     (update :cache deref)
+                     (update :req-cache deref)
+                     ->SmartMap))
+
+  IWithMeta
+  (-with-meta [this new-meta] (-> @(.-_state this)
+                                  (assoc :meta new-meta)
+                                  ->SmartMap))
+
+  IMeta
+  (-meta [this] (:meta @(.-_state this)))
+
+  IFind
+  (-find [this k] (sm-find this k)))
 
 (defn smart-map
   ([resolvers] (smart-map resolvers {}))
   ([resolvers env]
    (->SmartMap {:env env
+                :path []
                 :parser (gen-parser resolvers)
                 :idx-info (reduce pc/register {} resolvers)})))
 
