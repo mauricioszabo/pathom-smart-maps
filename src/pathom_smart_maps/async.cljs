@@ -64,49 +64,22 @@
 (defn- wrap-result [^js sm [key cached-value]]
   (c/let [state @(.-_state sm)]
     (->SmartMap (update state :cursor conj key))))
-    ; (prn :WRAP cached-value (coll? cached-value))
-    ; (if (coll? cached-value)
-    ;   (->SmartMap (update state :cursor conj key))
-    ;   (js/Promise.resolve cached-value))))
 
 (declare sm-get)
-; (defn- make-query! [^js sm k default]
-;   (c/let [state (.-_state sm)
-;           {:keys [parser env]} @state
-;           new-sm (doto (. SmartMap resolve state)
-;                        (aset "_state" (atom state)))]
-;     (.then sm
-;            (fn [resolve reject]
-;              (prn :AND?)
-;              (async/go
-;                ;; FIXME - error case
-;                (c/let [res (async/<! (parser env [k]))]
-;                  (prn :RESULT-FROM-QUERY res)
-;                  (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
-;                    (swap! state update :not-found-cache conj k)
-;                    (swap! (:cache @state) merge res))
-;                  (resolve (sm-get sm k default))))))))
 (defn- make-query! [^js sm k default]
   (c/let [state (.-_state sm)
           {:keys [parser env]} @state]
-          ; new-sm (doto (. SmartMap resolve state)
-          ;              (aset "_state" (atom state)))]
     (-> (SmartMap.
          (fn [resolve reject]
-           ; (prn :BEFORE-GO)
            (async/go
              ;; FIXME - error case
              (c/let [res (async/<! (parser env [k]))]
-               ; (prn :RESULT-FROM-QUERY res)
                (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
                  (swap! state update :not-found-cache conj k)
                  (swap! (:cache @state) merge res))
-               ; (prn :WILL-RESOLVE)
                (resolve state)))))
         (doto (aset "_state" state))
-        (.then #(do
-                  ; (prn :PROMISE-THEN)
-                  (sm-get sm k default))))))
+        (.then #(sm-get sm k default)))))
 
 (defn- sm-get [^js sm k default]
   (c/let [state (.-_state sm)
@@ -221,8 +194,7 @@
   Object
   (equiv [this other] (compare-to this other))
   (then [this fun]
-    (c/let [this-state (.-_state this)
-            super (.. js/Promise -prototype -then (bind this))
+    (c/let [super (.. js/Promise -prototype -then (bind this))
             state-var (atom nil)
             res-super
             (super (fn [state]
