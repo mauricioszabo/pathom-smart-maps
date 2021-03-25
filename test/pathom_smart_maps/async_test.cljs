@@ -76,38 +76,32 @@
   (let [smart (smart/smart-map [root-person full-name])]
     (reset! calls [])
     (async-test "resolving a data that depends on another"
-      #_
       (testing "will get the dependent data"
         (check (:person/full-name smart) => "Name Surname")
         (check @calls => [:root-person :full-name]))
 
-      #_
       (testing "will cache all information"
-        (check smart => {:person/gn "name"
-                         :person/sn "surname"
-                         :person/full-name "name surname"})
+        (check smart => {:person/gn "Name"
+                         :person/sn "Surname"
+                         :person/full-name "Name Surname"})
         (check @calls => [:root-person :full-name]))
 
-      #_
       (testing "will dissoc info (and un-cache)"
         (-> smart (dissoc :person/gn) :person/full-name
-            (check => "name surname"))
-        ; (check smart => {:person/gn "name"
-        ;                  :person/sn "surname"
-        ;                  :person/full-name "name surname"})
+            (check => "Name Surname"))
         (check @calls => [:root-person :full-name :root-person :full-name]))
 
-      #_
       (testing "un-caches results if you assoc a parent data"
         (check (:person/full-name (assoc smart :person/gn "Other"))
                => "Other Surname")
-        (check @calls => [:root-person :full-name :full-name]))
-      ;
-      ; (testing "un-caches results if you conj a parent data"
-      ;   (check (:person/full-name (conj smart [:person/gn "Another"]))
-      ;          => "Another Surname")
-      ;   (check @calls => [:root-person :full-name :full-name :full-name]))
-      ;
+        (check @calls => [:root-person :full-name :root-person :full-name :full-name]))
+
+      (testing "un-caches results if you conj a parent data"
+        (check (:person/full-name (conj smart [:person/gn "Another"]))
+               => "Another Surname")
+        (check @calls => [:root-person :full-name :root-person :full-name :full-name
+                          :full-name]))
+
       ; (testing "un-cache results if you dissoc some data"
       ;   (check (:person/full-name (dissoc smart :person/full-name))
       ;          => "Name Surname")

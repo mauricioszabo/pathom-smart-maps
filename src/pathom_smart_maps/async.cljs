@@ -32,22 +32,20 @@
      (instance? Atom cache) @cache
      :else cache)))
 
-(defn- ->SmartMap [{:keys [cache cursor req-cache not-found-cache env] :as params}]
+(defn- norm-state [{:keys [cache cursor req-cache not-found-cache env] :as params}]
   (c/let [req-cache (norm-cache req-cache)
-          cache (norm-cache cache)
-          state (assoc params
-                       :env (assoc env
-                                   ::p/entity cache
-                                   ::p/request-cache req-cache)
-                       :cursor (or cursor [])
-                       :cache cache
-                       :req-cache req-cache
-                       :not-found-cache (atom (or not-found-cache #{})))]
-          ; state (atom state)]
-    (def s state)
-    (. SmartMap resolve state)))
-    ; (doto
-    ;       (aset "_state" state))))
+          cache (norm-cache cache)]
+    (assoc params
+           :env (assoc env
+                       ::p/entity cache
+                       ::p/request-cache req-cache)
+           :cursor (or cursor [])
+           :cache cache
+           :req-cache req-cache
+           :not-found-cache (atom (or not-found-cache #{})))))
+
+(defn- ->SmartMap [state]
+    (. SmartMap resolve (norm-state state)))
 
 (defn- compare-to [^js this other]
   (if (instance? SmartMap other)
@@ -120,18 +118,7 @@
            :req-cache (dissoc-req-cache old-req-cache idx-info k))))
 
 (defn- sm-assoc [state k v]
-  (sm-dissoc state k)
-  #_
-  (c/let [new-state (sm-dissoc state k)]
-    ; (prn :NEW)
-    ; (def new-state new-state)
-    ; (def k k)
-    ; (def v v)
-    ; (prn :NEW (update new-state :cache assoc k v))
-    (prn :NEW?)
-    (->SmartMap (update new-state :cache assoc k v))))
-
-; (:cache new-state)
+  (norm-state (update (sm-dissoc state k) :cache assoc k v)))
 
 (defn- get-keys-dependencies [state]
   (-> state :idx-info ::pc/index-oir))
@@ -215,13 +202,13 @@
   ;
   IAssociative
   (-assoc [this k v] (.__state_then this #(sm-assoc % k v)))
-  (-contains-key? [this k] (.__state_then this #(sm-contains? % k))))
+  (-contains-key? [this k] (.__state_then this #(sm-contains? % k)))
   ;
   ; ICollection
   ; (-conj [this [k v]] (sm-assoc this k v))
-  ;
-  ; IMap
-  ; (-dissoc [this k] (->SmartMap (sm-dissoc this k)))
+
+  IMap
+  (-dissoc [this k] (.__state_then this #(norm-state (sm-dissoc % k)))))
   ;
   ; IEmptyableCollection
   ; (-empty [this] (c/let [state @(.-_state this)]
