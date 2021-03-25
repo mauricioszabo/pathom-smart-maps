@@ -99,27 +99,13 @@
       (testing "un-caches results if you conj a parent data"
         (check (:person/full-name (conj smart [:person/gn "Another"]))
                => "Another Surname")
-        (check @calls => [:root-person :full-name :root-person :full-name :full-name
-                          :full-name]))
+        (check @calls => [:root-person :full-name :root-person :full-name
+                          :full-name :full-name]))
 
-      ; (testing "un-cache results if you dissoc some data"
-      ;   (check (:person/full-name (dissoc smart :person/full-name))
-      ;          => "Name Surname")
-      ;   (check @calls => [:root-person :full-name :full-name
-      ;                     :full-name :full-name])
-      ;
-      ;   (check (:person/full-name (dissoc smart :person/gn))
-      ;          => "Name Surname")
-      ;   (check @calls => [:root-person :full-name :full-name
-      ;                     :full-name :full-name
-      ;                     :root-person :full-name]))
-      ;
-      ; (testing "behaves like a normal ClojureScript map"
-      ;   (check (empty smart) => {})
-      ;   (check (clone smart) => smart))
-      ,)))
+      (testing "behaves like a normal ClojureScript map"
+        (check (empty smart) => {})
+        (check (clone smart) => smart)))))
 
-#_
 (deftest containing-errors []
   (let [smart (smart/smart-map [root-person an-error])]
     (reset! calls [])
@@ -137,15 +123,6 @@
         (check @calls => [:an-error])
         (check (-contains-key? smart :error/field) => false)))))
 
-#_
-(deftest assoc-ing
-  (let [smart (-> [root-person full-name]
-                  smart/smart-map
-                  (assoc :person/gn "pre-added"))]
-    (async-test "will cache some of the data into the pipeline"
-      (check (:person/full-name smart) => "pre-added Surname"))))
-
-#_
 (deftest non-resolved-entities
   (let [smart (smart/smart-map [root-person full-name])]
     (async-test "will consider entities that WILL be resolved, but are not right now"
@@ -153,6 +130,7 @@
         (check (find smart :person/invalid) => nil)
         (check (find smart :person/gn) => [:person/gn "Name"]))
 
+      #_
       (testing "reduce will only resolve on the end"
         (let [mapped (reduce (fn [acc [k v]] (str acc " | " k " - " v))
                              ""

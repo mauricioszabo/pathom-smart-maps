@@ -123,10 +123,6 @@
 (defn- get-keys-dependencies [state]
   (-> state :idx-info ::pc/index-oir))
 
-(defn- sm-contains? [state k]
-  (if (contains? @(:not-found-cache state) k)
-    false
-    (-> state get-keys-dependencies (contains? k))))
 ;
 ; (defn- sm-seq [^js this]
 ;   (some-> this
@@ -135,13 +131,12 @@
 ;           deref
 ;           seq))
 ;
-; (defn- sm-find [this k])
-  ; (c/let [not-found (js/Object.)]
-  ;   (when (-contains-key? this k)
-  ;     (.then (get this k not-found) (fn [v]
-  ;                                     (if (= not-found v)
-  ;                                       nil
-  ;                                       (MapEntry. k v (hash [k v]))))))))
+(defn- sm-find [this k]
+  (c/let [not-found (js/Object.)]
+    (.. (get this k not-found)
+        (then (fn [val]
+                (when-not (= not-found val)
+                  (MapEntry. k val (hash [k val]))))))))
 
 ; (defn- sm-doall [^js this]
 ;   (c/let [not-found (js/Object.)
@@ -202,17 +197,20 @@
   ;
   IAssociative
   (-assoc [this k v] (.__state_then this #(sm-assoc % k v)))
-  (-contains-key? [this k] (.__state_then this #(sm-contains? % k)))
-  ;
-  ; ICollection
-  ; (-conj [this [k v]] (sm-assoc this k v))
+  (-contains-key? [this k] (.then this #(contains? % k)))
+
+  ICollection
+  (-conj [this [k v]] (.__state_then this #(sm-assoc % k v)))
 
   IMap
-  (-dissoc [this k] (.__state_then this #(norm-state (sm-dissoc % k)))))
-  ;
-  ; IEmptyableCollection
-  ; (-empty [this] (c/let [state @(.-_state this)]
-  ;                  (->SmartMap (assoc state :cache {} :req-cache {} :not-found-cache #{}))))
+  (-dissoc [this k] (.__state_then this #(norm-state (sm-dissoc % k))))
+
+  IEmptyableCollection
+  (-empty [this]
+    (.__state_then this #(norm-state (assoc %
+                                            :cache {}
+                                            :req-cache {}
+                                            :not-found-cache #{}))))
   ;
   ; IReduce
   ; (-reduce
@@ -228,11 +226,11 @@
   ; ISeqable
   ; (-seq [this] (sm-seq this))
   ;
-  ; ICloneable
-  ; (-clone [this] (-> (.-_state this)
-  ;                    (update :cache deref)
-  ;                    (update :req-cache deref)
-  ;                    ->SmartMap))
+  ICloneable
+  (-clone [this] (.__state_then this #(-> %
+                                          (update :cache deref)
+                                          (update :req-cache deref)
+                                          norm-state)))
   ;
   ; IWithMeta
   ; (-with-meta [this new-meta] (-> (.-_state this)
@@ -242,8 +240,8 @@
   ; IMeta
   ; (-meta [this] (:meta (.-_state this)))
   ;
-  ; IFind
-  ; (-find [this k] (sm-find this k))
+  IFind
+  (-find [this k] (sm-find this k)))
   ;
   ; ISeq
   ; (-first [this] (sm-first this))
