@@ -37,40 +37,40 @@
       ; type)
       ; (do nil))
 
+(def smap (smart/smart-map [root-person]))
+#_
+(:person/gn smap)
+
 (deftest root-resolver
   (async-test "resolving roots"
-    (let [map (smart/smart-map [root-person])]
-      (check map => {})
+    (reset! calls [])
+    (let [smap (smart/smart-map [root-person])]
+      (check smap => {})
 
       (testing "gets the attributes, makes a call to EQL"
-        (check (:person/gn map) => "Name")
+        (check (:person/gn smap) => "Name")
         (check @calls => [:root-person]))
 
       (testing "gets the attributes, does not make a call to EQL"
-        (check (:person/gn map) => "Name")
+        (check (:person/gn smap) => "Name")
         (check @calls => [:root-person]))
 
       (testing "don't find unexisting attribute, keep default"
-        (check (:person/my-name map ::name) => ::name)
+        (check (:person/my-name smap ::name) => ::name)
         (check @calls => [:root-person])))))
 
+#_
 (deftest destructuring-test
   (let [smart (smart/smart-map [root-person full-name])]
     (async-test "destructuring fields in promises"
       (smart/let [{:person/keys [gn]} smart]
         (check gn => "Name")))))
 
-(def smart (smart/smart-map [root-person full-name]))
-
 #_
-(do
-  (.then (:person/name smart ::LOL) #(prn :not-found %))
-  nil)
-
-#_
-(-> (smart/smart-map [root-person full-name])
-    (assoc :person/gn "Other"))
-    ; (.then #(prn :LOL %)))
+(println
+ (macroexpand-1
+  '(smart/let [{:person/keys [gn]} smap]
+     (check gn => "Name"))))
 
 (deftest sub-resolvers
   (let [smart (smart/smart-map [root-person full-name])]
@@ -130,7 +130,11 @@
         (check (find smart :person/invalid) => nil)
         (check (find smart :person/gn) => [:person/gn "Name"]))
 
-      #_
+      (testing "implements a version of doall"
+        (check (smart/doall smart) => {:person/gn "Name"
+                                       :person/sn "Surname"
+                                       :person/full-name "Name Surname"}))
+
       (testing "reduce will only resolve on the end"
         (let [mapped (reduce (fn [acc [k v]] (str acc " | " k " - " v))
                              ""
@@ -141,13 +145,12 @@
                                   (str acc " | " k " - " v))
                              ""
                              (smart/smart-map [root-person]))]
-          (check mapped => " | :person/gn - Name | :person/sn - Surname")))
+          (check mapped => " | :person/gn - Name | :person/sn - Surname"))))))
 
-      #_
-      (testing "map will only resolve on the end"
-        (let [mapped (map (fn [[k v]] (str k " - " v)) (smart/smart-map [root-person]))]
-          (check (p/all mapped) => (m/in-any-order [":person/gn - Name"
-                                                    ":person/sn - Surname"])))))))
+      ; (testing "map will only resolve on the end"
+      ;   (let [mapped (map (fn [[k v]] (str k " - " v)) (smart/smart-map [root-person]))]
+      ;     (check (p/all mapped) => (m/in-any-order [":person/gn - Name"
+      ;                                               ":person/sn - Surname"])))))))
 
 (pc/defresolver children [_ _]
   {::pc/input #{}
@@ -161,7 +164,6 @@
 
   {:person/next-age (inc age)})
 
-#_
 (deftest nested-smart-maps
   (let [smart (smart/smart-map [children birthday])]
     (async-test "will consider some smart-maps results as other smart-maps"
@@ -172,20 +174,23 @@
 
       (testing "resolves birthday for the first child only"
         (check (-> smart empty :person/children first :person/next-age) => 10)))))
-;         (check (-> smart empty :person/children first :person/next-age) => 10)
 ;         #_
 ;         (check (:person/children smart)
 ;                => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
 ;                              {:person/full-name "Child Two" :person/age 12}]))))))
 ;
 ; ; #_
-(def smart-nested (smart/smart-map [root-person children birthday]))
-;
+(def smart (smart/smart-map [root-person children birthday]))
+#_(.then smart prn)
+#_
+(-> smart
+    :person/children
+    first
+    :person/next-age)
 #_
 (-> (smart/smart-map [root-person children birthday])
-    :person/children
-    ; (.then prn)
-    first)
+    :person/children)
+    ; first)
     ; count)
     ; first
     ; #_:person/next-age)

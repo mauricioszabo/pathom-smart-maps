@@ -1,5 +1,5 @@
 (ns pathom-smart-maps.async
-  (:refer-clojure :exclude [let])
+  (:refer-clojure :exclude [let doall])
   (:require-macros [pathom-smart-maps.async])
   (:require [cljs.core :as c]
             [cljs.core.async :as async]
@@ -27,7 +27,6 @@
 (defn- norm-cache [cache]
   (atom
    (cond
-     (map? cache) cache
      (nil? cache) {}
      (instance? Atom cache) @cache
      :else cache)))
@@ -56,9 +55,22 @@
 ;   (c/let [state (.-_state sm)]
 ;     (->SmartMap (update state :cursor conj key))))
 
+#_
+(js/Promise.
+ (fn [resolve]
+   (async/go
+     (resolve (async/<! (parser env [{[{:person/full-name "Child One" :person/age 9}]
+                                      [:person/next-age]}]))))))
+
+#_
+(:cursor state)
+#_
+@(:cache state)
 (declare sm-get)
 (defn- make-query! [state k default]
   (c/let [{:keys [parser env]} state]
+    (def parser parser)
+    (def env env)
     (-> (js/Promise.
          (fn [resolve reject]
            (async/go
@@ -72,20 +84,22 @@
         ; (.__state_then #(sm-get % k default))))
 
 (defn- sm-get [state k default]
+  (def state state)
   (c/let [{:keys [not-found-cache cache eql cursor]} state
-          cache (get-in @cache cursor)
-          cached (find cache k)]
+          [cached-key cached-val] (find @cache k)]
+    ; (prn :CACHED cached)
+    ; (def state state)
+    ; (get-keys-dependencies state)
+    ; (get @(:cache state) :person/gn)
+    (def cache cache)
+    (def cached-key cached-key)
     (cond
-      cached (update state :cursor conj (first cached))
+      cached-key (if (coll? cached-val)
+                   (norm-state (assoc state :cache (get @cache cached-key)))
+                   (assoc state :final-val cached-val))
       (contains? @not-found-cache k) (assoc state :final-val default)
       :else (make-query! state k default))))
 
-; (extend-protocol ILookup
-;   SmartMap
-;   (-lookup
-;    ([this k] (.__state_then this #(doto (sm-get % k nil) (prn ::LOL))))
-;    ([this k not-found] (.__state_then this #(sm-get % k not-found)))))
-;
 (defn- dissoc-children [cache idx-info key]
   (c/let [resolvers (get-in idx-info [::pc/index-attributes key ::pc/attr-input-in])
           children (mapcat #(get-in idx-info [::pc/index-resolvers % ::pc/output])
@@ -138,42 +152,29 @@
                 (when-not (= not-found val)
                   (MapEntry. k val (hash [k val]))))))))
 
-; (defn- sm-doall [^js this]
-;   (c/let [not-found (js/Object.)
-;           kvs-prom (->> this
-;                         .-_state
-;                         get-keys-dependencies
-;                         keys
-;                         (map (fn [k]
-;                                (-> this
-;                                    (get k not-found)
-;                                    (.then (fn [v] [k v])))))
-;                         (js/Promise.all))]
-;     (.then kvs-prom (fn [kvs] (remove #(-> % second (= not-found)) kvs)))))
+(defn doall
+  "Resolves everything that this smart map needs to have resolved. Will return the same
+SmartMap (promise) that will have all fields resolved. Please note that as SmartMap is
+also a promise, you'll need to use .then to access the results."
+  [^js smart-map]
+  (.__state_then smart-map
+                 (fn [state]
+                   (.then
+                    (->> state
+                         get-keys-dependencies
+                         keys
+                         (map (fn [k] (get smart-map k)))
+                         (js/Promise.all))
+                    (constantly state)))))
 
-; (defn- sm-reduce [sequence f seed]
-;   (reduce (fn [acc-prom [key val]]
-;             (.then acc-prom
-;                    (fn [acc]
-;                      (c/let [entry (MapEntry. key val (hash [key val]))]
-;                        (f acc entry)))))
-;           (js/Promise.resolve seed)
-;           sequence))
+; (defn- smart-map-val [state]
+;   (get-in @(:cache state) (:cursor state)))
 
-(defn- sm-then [old-state fun]
-  ; (tap> [:old-state old-state])
-  (c/let [cache (:cache old-state)
-          value (:final-val old-state (get-in @cache (:cursor old-state)))
-          ; _ (prn :cursor (:cursor old-state)
-          ;        :from-cache (get-in @cache (:cursor old-state))
-          ;        :final-val (:final-val old-state))
+(defn- sm-then [state fun]
+  (c/let [value (:final-val state @(:cache state))
           res (fun value)]
 
-    ; (prn :res res
-    ;      :promise? (instance? js/Promise res)
-    ;      :smart? (instance? SmartMap res))
-
-    (assoc old-state :final-val res)))
+    (assoc state :final-val res)))
 
 (defn- sm-first [^js this]
   #_
@@ -211,17 +212,14 @@
                                             :cache {}
                                             :req-cache {}
                                             :not-found-cache #{}))))
-  ;
-  ; IReduce
-  ; (-reduce
-  ;  ([this f] (-> this sm-doall (.then (fn [[fst & rst]] (sm-reduce rst f fst)))))
-  ;  ([this f seed] (-> this sm-doall (.then (fn [seq] (sm-reduce seq f seed))))))
-  ;
-  ; IKVReduce
-  ; (-kv-reduce [this f init]
-  ;             (-> this
-  ;                 sm-doall
-  ;                 (.then #(sm-reduce % (fn [acc [k v]] (f acc k v)) init))))
+
+  IReduce
+  (-reduce
+   ([this f] (-> this doall (.then #(reduce f %))))
+   ([this f seed] (-> this doall (.then #(reduce f seed %)))))
+
+  IKVReduce
+  (-kv-reduce [this f init] (-> this doall (.then #(reduce-kv f init %))))
   ;
   ; ISeqable
   ; (-seq [this] (sm-seq this))
@@ -231,21 +229,27 @@
                                           (update :cache deref)
                                           (update :req-cache deref)
                                           norm-state)))
-  ;
+
   ; IWithMeta
-  ; (-with-meta [this new-meta] (-> (.-_state this)
-  ;                                 (assoc :meta new-meta)
-  ;                                 ->SmartMap))
+  ; (-with-meta [this new-meta] ())
   ;
   ; IMeta
   ; (-meta [this] (:meta (.-_state this)))
-  ;
+
   IFind
-  (-find [this k] (sm-find this k)))
-  ;
-  ; ISeq
-  ; (-first [this] (sm-first this))
-  ; (^clj -rest [coll]))
+  (-find [this k] (sm-find this k))
+
+  ISeq
+  (-first [this] (-nth this 0))
+  (^clj -rest [this] (.then this rest))
+
+  ICounted
+  (-count [this] (.then this count))
+
+  IIndexed
+  (-nth
+   ([this n] (-nth this 0 nil))
+   ([this n not-found] (.__state_then this #(sm-get % n not-found)))))
 
 (defn smart-map
   ([resolvers] (smart-map resolvers {}))
@@ -293,8 +297,8 @@
 ;   ISeqable
 ;   (-seq [coll])
 ;
-;   ICounted
-;   (-count [coll])
+  ; ICounted
+  ; (-count [this] (.then this count)))
 ;
 ;   IIndexed
 ;   (-nth [coll n])
