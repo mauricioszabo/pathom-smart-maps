@@ -173,11 +173,10 @@
                              {:person/full-name "Child Two" :person/age 12}])))
 
       (testing "resolves birthday for the first child only"
-        (check (-> smart empty :person/children first :person/next-age) => 10)))))
-;         #_
-;         (check (:person/children smart)
-;                => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
-;                              {:person/full-name "Child Two" :person/age 12}]))))))
+        (check (-> smart empty :person/children first :person/next-age) => 10)
+        (check (:person/children smart)
+               => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
+                             {:person/full-name "Child Two" :person/age 12}]))))))
 ;
 ; ; #_
 (def smart (smart/smart-map [root-person children birthday]))

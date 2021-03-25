@@ -38,18 +38,9 @@
            :env (assoc env
                        ::p/entity cache
                        ::p/request-cache req-cache)
-           :cursor (or cursor [])
            :cache cache
            :req-cache req-cache
            :not-found-cache (atom (or not-found-cache #{})))))
-
-(defn- ->SmartMap [state]
-    (. SmartMap resolve (norm-state state)))
-
-(defn- compare-to [^js this other]
-  (if (instance? SmartMap other)
-    (= (.-_state this) (.-_state other))
-    (= (.-_state this) other)))
 
 ; (defn- wrap-result [^js sm [key cached-value]]
 ;   (c/let [state (.-_state sm)]
@@ -66,6 +57,23 @@
 (:cursor state)
 #_
 @(:cache state)
+#_
+(update-in {} [0] merge {:foo 10})
+
+(defn- merge-parent! [parent-cache result]
+  (c/let [cursor (:cursor parent-cache)
+          parent-state (:state parent-cache)
+          parent-cache (:cache parent-state)
+          parent-result (swap! parent-cache assoc cursor result)]
+    (prn :MERGING cursor)
+    (when-let [grandparent-cache (:parent-cache parent-state)]
+      (merge-parent! grandparent-cache parent-result))))
+
+(defn- merge-result! [current-state result]
+  (c/let [new-result (swap! (:cache current-state) merge result)]
+    (when-let [parent-cache (:parent-cache current-state)]
+      (merge-parent! parent-cache new-result))))
+
 (declare sm-get)
 (defn- make-query! [state k default]
   (c/let [{:keys [parser env]} state]
@@ -74,28 +82,27 @@
     (-> (js/Promise.
          (fn [resolve reject]
            (async/go
-             ;; FIXME - error case
-             (c/let [res (async/<! (parser env [k]))]
-               (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
-                 (swap! (:not-found-cache state) conj k)
-                 (swap! (:cache state) merge res))
-               (resolve (sm-get state k default)))))))))
-               ; (resolve state)))]))
-        ; (.__state_then #(sm-get % k default))))
+             (try
+               (c/let [res (async/<! (parser env [k]))]
+                 (if (#{::p/not-found ::p/reader-error} (get res k ::p/not-found))
+                   (swap! (:not-found-cache state) conj k)
+                   (merge-result! state res))
+                 (resolve (sm-get state k default)))
+               (catch :default e (reject e)))))))))
 
 (defn- sm-get [state k default]
-  (def state state)
   (c/let [{:keys [not-found-cache cache eql cursor]} state
           [cached-key cached-val] (find @cache k)]
-    ; (prn :CACHED cached)
-    ; (def state state)
-    ; (get-keys-dependencies state)
-    ; (get @(:cache state) :person/gn)
-    (def cache cache)
-    (def cached-key cached-key)
+    ; (when cached-key
+    ;   (prn :GETTING-CACHE cached-key (coll? cached-val)))
+    (def state state)
     (cond
       cached-key (if (coll? cached-val)
-                   (norm-state (assoc state :cache (get @cache cached-key)))
+                   (do
+                     (tap> [:parent (-> state :parent-cache) :state state])
+                     (norm-state (assoc state
+                                        :cache (get @cache cached-key)
+                                        :parent-cache {:state state :cursor cached-key})))
                    (assoc state :final-val cached-val))
       (contains? @not-found-cache k) (assoc state :final-val default)
       :else (make-query! state k default))))
@@ -137,14 +144,6 @@
 (defn- get-keys-dependencies [state]
   (-> state :idx-info ::pc/index-oir))
 
-;
-; (defn- sm-seq [^js this]
-;   (some-> this
-;           .-_state
-;           :cache
-;           deref
-;           seq))
-;
 (defn- sm-find [this k]
   (c/let [not-found (js/Object.)]
     (.. (get this k not-found)
@@ -167,35 +166,21 @@ also a promise, you'll need to use .then to access the results."
                          (js/Promise.all))
                     (constantly state)))))
 
-; (defn- smart-map-val [state]
-;   (get-in @(:cache state) (:cursor state)))
-
 (defn- sm-then [state fun]
   (c/let [value (:final-val state @(:cache state))
           res (fun value)]
 
     (assoc state :final-val res)))
 
-(defn- sm-first [^js this]
-  #_
-  (.__state_then this
-         #(prn :STATEA (-> @% :path))))
-  ; (c/let [state (.-_state this)]
-  ;   (def st state)
-  ;   []))
-
 (extend-type SmartMap
   Object
-  (equiv [this other] (compare-to this other))
   (then [this fun] (.__state_then this #(sm-then % fun)))
 
   ILookup
   (-lookup
    ([this k] (.__state_then this #(sm-get % k nil)))
    ([this k not-found] (.__state_then this #(sm-get % k not-found))))
-  ; IEquiv
-  ; (-equiv [this other] (compare-to this other))
-  ;
+
   IAssociative
   (-assoc [this k v] (.__state_then this #(sm-assoc % k v)))
   (-contains-key? [this k] (.then this #(contains? % k)))
@@ -254,10 +239,10 @@ also a promise, you'll need to use .then to access the results."
 (defn smart-map
   ([resolvers] (smart-map resolvers {}))
   ([resolvers env]
-   (->SmartMap {:env env
-                :path []
-                :parser (gen-parser resolvers)
-                :idx-info (reduce pc/register {} resolvers)})))
+   (. SmartMap resolve (norm-state {:env env
+                                    :path []
+                                    :parser (gen-parser resolvers)
+                                    :idx-info (reduce pc/register {} resolvers)}))))
 
 ; (deftype PersistentVector [meta cnt shift root tail ^:mutable __hash]
 ;   Object
