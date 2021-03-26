@@ -1,0 +1,4 @@
+#!/bin/bash
+
+npm i
+npx shadow-cljs watch tests
