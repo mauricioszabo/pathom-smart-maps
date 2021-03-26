@@ -28,19 +28,6 @@
   (swap! calls conj :an-error)
   (throw (ex-info "That's an error. That's all" {})))
 
-#_(-> ;smap
-      (smart/smart-map [root-person])
-      :person/sn
-      (.then #(do (prn :FINAL-RES %) (+ % 20))))
-      ; (.then #(do (prn :FINAL-RES-2 %) 20))
-      ; (.then #(do (prn :FINAL-RES-3 %) 30)))
-      ; type)
-      ; (do nil))
-
-(def smap (smart/smart-map [root-person]))
-#_
-(:person/gn smap)
-
 (deftest root-resolver
   (async-test "resolving roots"
     (reset! calls [])
@@ -65,12 +52,6 @@
     (async-test "destructuring fields in promises"
       (smart/let [{:person/keys [gn]} smart]
         (check gn => "Name")))))
-
-#_
-(println
- (macroexpand-1
-  '(smart/let [{:person/keys [gn]} smap]
-     (check gn => "Name"))))
 
 (deftest sub-resolvers
   (let [smart (smart/smart-map [root-person full-name])]
