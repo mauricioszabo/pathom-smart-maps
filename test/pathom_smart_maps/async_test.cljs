@@ -177,8 +177,11 @@
           (p/do!
            (check (-> smart :person/children first :person/next-age) => 10)
            (check (:person/children smart)
-                  => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
-                                {:person/full-name "Child Two" :person/age 12}]))))))))
+                  => (m/equals [{:person/full-name "Child One"
+                                 :person/age 9
+                                 :person/next-age 10}
+                                {:person/full-name "Child Two"
+                                 :person/age 12}]))))))))
 
 (defn- ^:dev/after-load run []
   (run-tests))
