@@ -42,30 +42,11 @@
            :req-cache req-cache
            :not-found-cache (atom (or not-found-cache #{})))))
 
-; (defn- wrap-result [^js sm [key cached-value]]
-;   (c/let [state (.-_state sm)]
-;     (->SmartMap (update state :cursor conj key))))
-
-#_
-(js/Promise.
- (fn [resolve]
-   (async/go
-     (resolve (async/<! (parser env [{[{:person/full-name "Child One" :person/age 9}]
-                                      [:person/next-age]}]))))))
-
-#_
-(:cursor state)
-#_
-@(:cache state)
-#_
-(update-in {} [0] merge {:foo 10})
-
 (defn- merge-parent! [parent-cache result]
   (c/let [cursor (:cursor parent-cache)
           parent-state (:state parent-cache)
           parent-cache (:cache parent-state)
           parent-result (swap! parent-cache assoc cursor result)]
-    (prn :MERGING cursor)
     (when-let [grandparent-cache (:parent-cache parent-state)]
       (merge-parent! grandparent-cache parent-result))))
 
@@ -93,16 +74,11 @@
 (defn- sm-get [state k default]
   (c/let [{:keys [not-found-cache cache eql cursor]} state
           [cached-key cached-val] (find @cache k)]
-    ; (when cached-key
-    ;   (prn :GETTING-CACHE cached-key (coll? cached-val)))
-    (def state state)
     (cond
       cached-key (if (coll? cached-val)
-                   (do
-                     (tap> [:parent (-> state :parent-cache) :state state])
-                     (norm-state (assoc state
-                                        :cache (get @cache cached-key)
-                                        :parent-cache {:state state :cursor cached-key})))
+                   (norm-state (assoc state
+                                      :cache (get @cache cached-key)
+                                      :parent-cache {:state state :cursor cached-key}))
                    (assoc state :final-val cached-val))
       (contains? @not-found-cache k) (assoc state :final-val default)
       :else (make-query! state k default))))
@@ -243,82 +219,3 @@ also a promise, you'll need to use .then to access the results."
                                     :path []
                                     :parser (gen-parser resolvers)
                                     :idx-info (reduce pc/register {} resolvers)}))))
-
-; (deftype PersistentVector [meta cnt shift root tail ^:mutable __hash]
-;   Object
-;   (toString [coll])
-;   (equiv [this other])
-;   (indexOf [coll x])
-;   (indexOf [coll x start])
-;   (lastIndexOf [coll x])
-;   (lastIndexOf [coll x start])
-;
-;   ICloneable
-;   (-clone [_])
-;
-;   IWithMeta
-;   (-with-meta [coll new-meta])
-;
-;   IMeta
-;   (-meta [coll] meta)
-;
-;   IStack
-;   (-peek [coll])
-;   (-pop [coll])
-;
-;   ICollection
-;   (-conj [coll o])
-;
-;   IEmptyableCollection
-;   (-empty [coll])
-;
-;   ISequential
-;   IEquiv
-;   (-equiv [coll other])
-;
-;   IHash
-;   (-hash [coll])
-;
-;   ISeqable
-;   (-seq [coll])
-;
-  ; ICounted
-  ; (-count [this] (.then this count)))
-;
-;   IIndexed
-;   (-nth [coll n])
-;   (-nth [coll n not-found])
-;
-;   ILookup
-;   (-lookup [coll k])
-;   (-lookup [coll k not-found])
-;
-;   IAssociative
-;   (-assoc [coll k v])
-;   (-contains-key? [coll k])
-;
-;   IFind
-;   (-find [coll n])
-;
-;   APersistentVector
-;   IVector
-;   (-assoc-n [coll n val])
-;
-;   IReduce
-;   (-reduce [v f])
-;   (-reduce [v f init])
-;
-;   IKVReduce
-;
-;   IFn
-;   (-invoke [coll k])
-;   (-invoke [coll k not-found])
-;
-;   IEditableCollection
-;   (-as-transient [coll])
-;
-;   IReversible
-;   (-rseq [coll])
-;
-;   IIterable
-;   (-iterator [this]))

@@ -173,52 +173,12 @@
                              {:person/full-name "Child Two" :person/age 12}])))
 
       (testing "resolves birthday for the first child only"
-        (check (-> smart empty :person/children first :person/next-age) => 10)
-        (check (:person/children smart)
-               => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
-                             {:person/full-name "Child Two" :person/age 12}]))))))
-;
-; ; #_
-(def smart (smart/smart-map [root-person children birthday]))
-#_(.then smart prn)
-#_
-(-> smart
-    :person/children
-    first
-    :person/next-age)
-#_
-(-> (smart/smart-map [root-person children birthday])
-    :person/children)
-    ; first)
-    ; count)
-    ; first
-    ; #_:person/next-age)
-;
-; #_
-; (-> smart :person/children #_first #_:person/next-age)
-; #_
-; (-> smart :person/gn type)
-;
-; #_
-; (type
-;  (js/Promise.race #js [(smart/smart-map [root-person children birthday])
-;                        (. smart/SmartMapEntry resolve 20)]))
-;
-; #_
-; (type
-;  (.. smart/SmartMapEntry
-;      (resolve [root-person children birthday])
-;      (then (fn [res] (smart/smart-map res)))))
-;
-; #_
-; (-> smart empty :person/children (.then #(count %)))
-; #_
-; (-> smart :person/children (.then #(count %)))
-;
-; #_
-; (-> smart empty :person/children type)
-; #_
-; (-> smart :person/children type)
-;
+        (let [smart (empty smart)]
+          (p/do!
+           (check (-> smart :person/children first :person/next-age) => 10)
+           (check (:person/children smart)
+                  => (m/equals [{:person/full-name "Child One" :person/age 9 :person/next-age 10}
+                                {:person/full-name "Child Two" :person/age 12}]))))))))
+
 (defn- ^:dev/after-load run []
   (run-tests))
