@@ -1,29 +1,29 @@
 (ns pathom-smart-maps.async-test
   (:require [pathom-smart-maps.async :as smart]
-            [com.wsscode.pathom.connect :as pc]
+            [com.wsscode.pathom.connect :as connect]
             [clojure.test :refer [deftest run-tests]]
             [matcher-combinators.matchers :as m]
             [promesa.core :as p]
             [check.async :refer [async-test check testing]]))
 
 (def calls (atom []))
-(pc/defresolver root-person [_ _]
-  {::pc/input #{}
-   ::pc/output [:person/gn :person/sn]}
+(connect/defresolver root-person [_ _]
+  {::connect/input #{}
+   ::connect/output [:person/gn :person/sn]}
 
   (swap! calls conj :root-person)
   {:person/gn "Name" :person/sn "Surname"})
 
-(pc/defresolver full-name [env {:person/keys [gn sn]}]
-  {::pc/input #{:person/gn :person/sn}
-   ::pc/output [:person/full-name]}
+(connect/defresolver full-name [env {:person/keys [gn sn]}]
+  {::connect/input #{:person/gn :person/sn}
+   ::connect/output [:person/full-name]}
 
   (swap! calls conj :full-name)
   {:person/full-name (str gn " " sn)})
 
-(pc/defresolver an-error [_ _]
-  {::pc/input #{}
-   ::pc/output [:error/field]}
+(connect/defresolver an-error [_ _]
+  {::connect/input #{}
+   ::connect/output [:error/field]}
 
   (swap! calls conj :an-error)
   (throw (ex-info "That's an error. That's all" {})))
@@ -133,15 +133,15 @@
       ;     (check (p/all mapped) => (m/in-any-order [":person/gn - Name"
       ;                                               ":person/sn - Surname"])))))))
 
-(pc/defresolver children [_ _]
-  {::pc/input #{}
-   ::pc/output [{:person/children [:person/full-name :person/age]}]}
+(connect/defresolver children [_ _]
+  {::connect/input #{}
+   ::connect/output [{:person/children [:person/full-name :person/age]}]}
   {:person/children [{:person/full-name "Child One" :person/age 9}
                      {:person/full-name "Child Two" :person/age 12}]})
 
-(pc/defresolver birthday [_ {:keys [person/age]}]
-  {::pc/input #{:person/age}
-   ::pc/output [:person/next-age]}
+(connect/defresolver birthday [_ {:keys [person/age]}]
+  {::connect/input #{:person/age}
+   ::connect/output [:person/next-age]}
 
   {:person/next-age (inc age)})
 
@@ -163,6 +163,31 @@
                                  :person/next-age 10}
                                 {:person/full-name "Child Two"
                                  :person/age 12}]))))))))
+
+(connect/defresolver array-root [_]
+  {::connect/output [{:people [:person/name :person/age]}]}
+  (js/Promise.resolve
+   {:people [{:person/name "One" :person/age 10}
+             {:person/name "Two" :person/age 20}
+             {:person/name "Three" :person/age 30}]}))
+
+(connect/defresolver array-next [{:keys [person/age]}]
+  {::connect/output [:person/next-age]}
+  (js/Promise.resolve {:person/next-age (inc age)}))
+
+(deftest calculates-from-nested-array
+  (async-test "Calculates nested data from a root array"
+    (let [incomplete-map (smart/smart-map [array-root])
+          complete-map (smart/smart-map [array-root array-next])]
+
+      (p/do!
+       (testing "captures nil for nested elements"
+         (-> incomplete-map :people first :person/next-age
+             (check => nil)))
+
+       (testing "captures next-age for nested elements"
+         (-> complete-map :people (nth 1) :person/next-age
+             (check => 21)))))))
 
 (defn- ^:dev/after-load run []
   (run-tests))

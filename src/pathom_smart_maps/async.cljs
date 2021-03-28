@@ -40,7 +40,7 @@
                        ::p/request-cache req-cache)
            :cache cache
            :req-cache req-cache
-           :not-found-cache (atom (or not-found-cache #{})))))
+           :not-found-cache (norm-cache (or not-found-cache #{})))))
 
 (defn- merge-parent! [parent-cache result]
   (c/let [cursor (:cursor parent-cache)
@@ -58,8 +58,6 @@
 (declare sm-get)
 (defn- make-query! [state k default]
   (c/let [{:keys [parser env]} state]
-    (def parser parser)
-    (def env env)
     (-> (js/Promise.
          (fn [resolve reject]
            (async/go
@@ -69,7 +67,8 @@
                    (swap! (:not-found-cache state) conj k)
                    (merge-result! state res))
                  (resolve (sm-get state k default)))
-               (catch :default e (reject e)))))))))
+               (catch :default e
+                 (reject e)))))))))
 
 (defn- sm-get [state k default]
   (c/let [{:keys [not-found-cache cache eql cursor]} state
@@ -209,7 +208,7 @@ also a promise, you'll need to use .then to access the results."
 
   IIndexed
   (-nth
-   ([this n] (-nth this 0 nil))
+   ([this n] (-nth this n nil))
    ([this n not-found] (.__state_then this #(sm-get % n not-found)))))
 
 (defn smart-map
